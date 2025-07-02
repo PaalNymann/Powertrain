@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 import requests
-from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 
@@ -8,7 +7,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins="*")
 
 # API Configuration
 RACKBEAT_API_KEY = os.getenv('RACKBEAT_API_KEY')
