@@ -30,6 +30,20 @@ def get_vehicle_info():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/car_parts_search')
+def car_parts_search():
+    # This endpoint matches what your Shopify theme expects
+    regnr = request.args.get('regnr')
+    if not regnr:
+        return jsonify({"error": "Missing regnr parameter"}), 400
+
+    try:
+        # Use live API for vehicle lookup
+        vehicle_data = hent_kjoretoydata(regnr)
+        return jsonify(vehicle_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/rackbeat/parts')
 def get_mecaparts_parts():
     try:
