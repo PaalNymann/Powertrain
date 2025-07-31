@@ -1,0 +1,20 @@
+# -------------------- Statens Vegvesen --------------------
+SVV_API_KEY=<PLACEHOLDER_SVV_TOKEN>
+SVV_ENDPOINT=https://akfell-datautlevering.atlas.vegvesen.no/enkeltoppslag/kjoretoydata
+
+# -------------------- Rackbeat ----------------------------
+RACKBEAT_API_KEY=<PLACEHOLDER_RACKBEAT_JWT>
+RACKBEAT_ENDPOINT=https://app.rackbeat.com/api/products      # base URL only
+
+# -------------------- Shopify -----------------------------
+SHOPIFY_DOMAIN=<STORE>.myshopify.com
+SHOPIFY_TOKEN=<PLACEHOLDER_ADMIN_API_TOKEN>                  # "shpat_…"
+SHOPIFY_VERSION=2023-10                                      # pin a stable version
+
+# -------------------- Mecaparts (TecDoc) -------------------
+MECAPARTS_ENDPOINT=https://<STORE>.myshopify.com/apps/mecaparts/api/vehicle_parts
+
+# -------------------- Flask local ports -------------------
+PORT_APP=8000   # licence‑plate + TecDoc micro‑service
+PORT_SYNC=8001  # Rackbeat → Shopify synchroniser
+FLASK_ENV=development 
