@@ -4,10 +4,15 @@ Clean API tokens from files before deployment
 """
 
 import re
+import os
 
 def clean_file(file_path, patterns):
     """Clean sensitive data from a file"""
     try:
+        if not os.path.exists(file_path):
+            print(f"⚠️  File not found: {file_path}")
+            return
+            
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
@@ -37,13 +42,17 @@ def main():
         (r'936b8481-8c71-49ab-832d-10944c9b6728', 'your_svv_api_key_here'),
     ]
     
-    # Files to clean
+    # Files to clean - all files that might contain secrets
     files_to_clean = [
         'RAILWAY_DEPLOYMENT.md',
         'README.md', 
         'SYSTEM_OVERVIEW.md',
         'simple_sync.py',
-        'update_existing_products.py'
+        'update_existing_products.py',
+        '.env',
+        'DEVELOPMENT_LOG.md',
+        'test_metafields.py',
+        'test_single_product.py'
     ]
     
     print("🧹 Cleaning API tokens from files...")
