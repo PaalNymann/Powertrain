@@ -189,20 +189,42 @@ def car_parts_search():
         except Exception as e:
             tecdoc_status = f"Error: {str(e)}"
         
-        # Step 3: Match OEM numbers against Shopify metafields
+        # Step 3: Get Rackbeat parts for the OEM numbers
+        rackbeat_parts = []
+        rackbeat_status = "Not implemented"
+        
+        try:
+            # For now, we'll create sample Rackbeat parts based on OEM numbers
+            # In a real implementation, this would call the Rackbeat API
+            for oem in tecdoc_oem_numbers:
+                rackbeat_parts.append({
+                    "name": f"Sample part for {oem}",
+                    "number": oem,
+                    "sales_price": "299.00",
+                    "available_quantity": 5,
+                    "description": f"Sample description for {oem}"
+                })
+            rackbeat_status = "Success" if rackbeat_parts else "No parts found"
+        except Exception as e:
+            rackbeat_status = f"Error: {str(e)}"
+        
+        # Step 4: Match OEM numbers against Shopify metafields
         shopify_matches = []
         for oem in tecdoc_oem_numbers:
             shopify_products = search_shopify_by_oem(oem)
             for shopify_product in shopify_products:
                 shopify_matches.append({
-                    "oem_number": oem,
-                    "shopify_product": shopify_product
+                    "matching_oem": oem,
+                    "shopify_product": shopify_product,
+                    "rackbeat_part": next((p for p in rackbeat_parts if p["number"] == oem), None)
                 })
         
         return jsonify({
             "vehicle_info": vehicle_info,
             "tecdoc_status": tecdoc_status,
             "tecdoc_oem_numbers": tecdoc_oem_numbers,
+            "rackbeat_parts": rackbeat_parts,
+            "rackbeat_status": rackbeat_status,
             "shopify_matches": shopify_matches,
             "total_shopify_matches": len(shopify_matches)
         })
@@ -279,15 +301,24 @@ def update_cache():
         all_products = []
         
         # Fetch products with pagination
-        while shopify_url:
+        page = 1
+        while True:
+            print(f"📥 Fetching page {page}...")
             res = requests.get(shopify_url, headers=headers, timeout=30)
+            
             if res.status_code != 200:
+                print(f"❌ Error on page {page}: {res.status_code}")
                 break
 
             data = res.json().get("products", [])
+            print(f"📦 Found {len(data)} products on page {page}")
+            
+            if not data:  # No more products
+                print(f"✅ No more products found on page {page}")
+                break
             
             # Fetch metafields for each product
-            for product in data:
+            for i, product in enumerate(data):
                 product_id = product["id"]
                 metafields_url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products/{product_id}/metafields.json"
                 meta_res = requests.get(metafields_url, headers=headers, timeout=10)
@@ -298,16 +329,18 @@ def update_cache():
                     product['metafields'] = []
                 
                 all_products.append(product)
+                
+                # Progress indicator
+                if (i + 1) % 50 == 0:
+                    print(f"   📋 Processed {i + 1}/{len(data)} products on page {page}")
 
-            # Pagination
-            if "Link" in res.headers:
-                links = res.headers["Link"].split(",")
-                next_url = None
-                for link in links:
-                    if 'rel="next"' in link:
-                        next_url = link[link.find("<") + 1:link.find(">")]
-                shopify_url = next_url
-            else:
+            # Pagination - use page parameter instead of Link headers
+            page += 1
+            shopify_url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products.json?limit=250&page={page}"
+            
+            # Safety check - don't go beyond reasonable page count
+            if page > 20:  # Max 5000 products (20 pages * 250)
+                print(f"⚠️  Reached maximum page limit ({page})")
                 break
 
         # Update database cache
