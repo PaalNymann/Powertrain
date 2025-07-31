@@ -105,14 +105,7 @@ def query_tecdoc_api(vehicle_info):
             oem_numbers = [
                 "34116851147",  # BMW X5 brake pad
                 "34116851148",  # BMW X5 brake disc
-                "11427512345",  # BMW X5 air filter
-                "11427512346",  # BMW X5 oil filter
-                "11427512347",  # BMW X5 fuel filter
-                "11427512348",  # BMW X5 cabin filter
-                "11427512349",  # BMW X5 spark plug
-                "11427512350",  # BMW X5 ignition coil
-                "11427512351",  # BMW X5 timing belt
-                "11427512352"   # BMW X5 water pump
+                "11427512345"   # BMW X5 air filter
             ]
         elif "VOLKSWAGEN" in make:
             # VW typical OEM numbers
@@ -145,16 +138,9 @@ def query_tecdoc_api(vehicle_info):
         else:
             # Generic OEM numbers for other vehicles
             oem_numbers = [
-                "12345678901",  # Generic brake pad
-                "12345678902",  # Generic brake disc
-                "12345678903",  # Generic air filter
-                "12345678904",  # Generic oil filter
-                "12345678905",  # Generic fuel filter
-                "12345678906",  # Generic cabin filter
-                "12345678907",  # Generic spark plug
-                "12345678908",  # Generic ignition coil
-                "12345678909",  # Generic timing belt
-                "12345678910"   # Generic water pump
+                "GENERIC001",  # Generic brake pad
+                "GENERIC002",  # Generic brake disc
+                "GENERIC003"   # Generic air filter
             ]
         
         print(f"Found {len(oem_numbers)} OEM numbers from TecDoc")
