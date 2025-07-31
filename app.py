@@ -340,5 +340,5 @@ if __name__ == '__main__':
     init_db()
     print("Database initialized")
     
-    app.run(port=int(os.getenv('PORT_APP', 8000)), host='0.0.0.0')
+    app.run(port=int(os.getenv('PORT', 8000)), host='0.0.0.0')
 
