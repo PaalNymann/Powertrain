@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SHOP_DOMAIN = os.getenv("SHOPIFY_DOMAIN", "bm0did-zc.myshopify.com")
-SHOP_TOKEN = os.getenv("SHOPIFY_TOKEN", "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")
+SHOP_TOKEN = os.getenv("SHOPIFY_TOKEN", "your_shopify_token_here")
 
 # Headers
 HEAD_SHOP = {

@@ -33,10 +33,10 @@ ShopifyProduct (products cache)
 DATABASE_URL=postgresql://username:password@host:port/database
 
 # APIs
-SVV_API_KEY=936b8481-8c71-49ab-832d-10944c9b6728
-RACKBEAT_API_KEY=eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9...
+SVV_API_KEY=your_svv_api_key_here
+RACKBEAT_API_KEY=your_rackbeat_token_here
 SHOPIFY_DOMAIN=bm0did-zc.myshopify.com
-SHOPIFY_TOKEN=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
+SHOPIFY_TOKEN=your_shopify_token_here
 
 # Flask
 PORT_APP=8000
