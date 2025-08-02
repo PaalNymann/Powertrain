@@ -380,6 +380,32 @@ def cache_stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/sync/start', methods=['POST'])
+def start_sync():
+    """Start background sync process"""
+    try:
+        import subprocess
+        import threading
+        
+        def run_sync():
+            try:
+                subprocess.run(['python', 'sync_service.py', 'full'], 
+                             capture_output=True, text=True, timeout=3600)
+            except Exception as e:
+                print(f"Sync error: {e}")
+        
+        # Start sync in background thread
+        thread = threading.Thread(target=run_sync)
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Background sync started"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     # Initialize database
     init_db()
