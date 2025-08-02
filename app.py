@@ -337,17 +337,9 @@ def update_cache():
                 print(f"✅ No more products found on page {page}")
                 break
             
-            # Fetch metafields for each product
+            # Add products without metafields for now (we'll add them later)
             for i, product in enumerate(data):
-                product_id = product["id"]
-                metafields_url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products/{product_id}/metafields.json"
-                meta_res = requests.get(metafields_url, headers=headers, timeout=10)
-                
-                if meta_res.status_code == 200:
-                    product['metafields'] = meta_res.json().get("metafields", [])
-                else:
-                    product['metafields'] = []
-                
+                product['metafields'] = []  # Empty for now
                 all_products.append(product)
                 
                 # Progress indicator
