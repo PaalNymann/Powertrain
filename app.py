@@ -319,22 +319,28 @@ def update_cache():
         }
 
         all_products = []
+        page_info = None
+        page_count = 0
         
-        # Fetch products with pagination
-        page = 1
+        # Fetch products with pagination using Link headers
         while True:
-            print(f"📥 Fetching page {page}...")
-            res = requests.get(shopify_url, headers=headers, timeout=30)
+            page_count += 1
+            current_url = shopify_url
+            if page_info:
+                current_url += f"&page_info={page_info}"
+            
+            print(f"📥 Fetching page {page_count}...")
+            res = requests.get(current_url, headers=headers, timeout=30)
             
             if res.status_code != 200:
-                print(f"❌ Error on page {page}: {res.status_code}")
+                print(f"❌ Error on page {page_count}: {res.status_code}")
                 break
 
             data = res.json().get("products", [])
-            print(f"📦 Found {len(data)} products on page {page}")
+            print(f"📦 Found {len(data)} products on page {page_count}")
             
             if not data:  # No more products
-                print(f"✅ No more products found on page {page}")
+                print(f"✅ No more products found on page {page_count}")
                 break
             
             # Fetch metafields for each product
@@ -352,15 +358,19 @@ def update_cache():
                 
                 # Progress indicator
                 if (i + 1) % 50 == 0:
-                    print(f"   📋 Processed {i + 1}/{len(data)} products on page {page}")
+                    print(f"   📋 Processed {i + 1}/{len(data)} products on page {page_count}")
 
-            # Pagination - use page parameter instead of Link headers
-            page += 1
-            shopify_url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products.json?limit=250&page={page}"
+            # Check for pagination using Link headers
+            link = res.headers.get("link", "")
+            if 'rel="next"' in link:
+                page_info = link.split("page_info=")[1].split(">")[0]
+            else:
+                print(f"✅ No more pages available")
+                break
             
             # Safety check - don't go beyond reasonable page count
-            if page > 50:  # Max 12500 products (50 pages * 250)
-                print(f"⚠️  Reached maximum page limit ({page})")
+            if page_count > 100:  # Max 25000 products (100 pages * 250)
+                print(f"⚠️  Reached maximum page limit ({page_count})")
                 break
 
         # Update database cache
