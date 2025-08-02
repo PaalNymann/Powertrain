@@ -362,10 +362,13 @@ def update_cache():
 
             # Check for pagination using Link headers
             link = res.headers.get("link", "")
+            print(f"   🔗 Link header: {link}")
+            
             if 'rel="next"' in link:
                 page_info = link.split("page_info=")[1].split(">")[0]
+                print(f"   ➡️  Next page_info: {page_info}")
             else:
-                print(f"✅ No more pages available")
+                print(f"   ✅ No more pages available")
                 break
             
             # Safety check - don't go beyond reasonable page count
