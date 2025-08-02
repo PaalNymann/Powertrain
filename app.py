@@ -359,7 +359,7 @@ def update_cache():
             shopify_url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products.json?limit=250&page={page}"
             
             # Safety check - don't go beyond reasonable page count
-            if page > 20:  # Max 5000 products (20 pages * 250)
+            if page > 50:  # Max 12500 products (50 pages * 250)
                 print(f"⚠️  Reached maximum page limit ({page})")
                 break
 
