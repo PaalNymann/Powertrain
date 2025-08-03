@@ -396,10 +396,18 @@ def update_cache():
             debug_info.append(debug_msg)
             
             if 'rel="next"' in link:
-                page_info = link.split("page_info=")[1].split(">")[0]
-                debug_msg = f"   ➡️  Next page_info: {page_info}"
-                print(debug_msg)
-                debug_info.append(debug_msg)
+                # Find the next page_info specifically
+                next_link = [l for l in link.split(',') if 'rel="next"' in l]
+                if next_link:
+                    page_info = next_link[0].split("page_info=")[1].split(">")[0]
+                    debug_msg = f"   ➡️  Next page_info: {page_info}"
+                    print(debug_msg)
+                    debug_info.append(debug_msg)
+                else:
+                    debug_msg = f"   ❌ Could not find next page_info"
+                    print(debug_msg)
+                    debug_info.append(debug_msg)
+                    break
             else:
                 debug_msg = f"   ✅ No more pages available"
                 print(debug_msg)
