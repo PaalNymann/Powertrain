@@ -321,6 +321,7 @@ def update_cache():
         all_products = []
         page_info = None
         page_count = 0
+        debug_info = []
         
         # Fetch products with pagination using Link headers
         while True:
@@ -329,25 +330,46 @@ def update_cache():
             if page_info:
                 current_url += f"&page_info={page_info}"
             
-            print(f"📥 Fetching page {page_count}...")
-            print(f"   URL: {current_url}")
+            debug_msg = f"📥 Fetching page {page_count}..."
+            print(debug_msg)
+            debug_info.append(debug_msg)
+            
+            debug_msg = f"   URL: {current_url}"
+            print(debug_msg)
+            debug_info.append(debug_msg)
+            
             res = requests.get(current_url, headers=headers, timeout=30)
             
-            print(f"   Status: {res.status_code}")
+            debug_msg = f"   Status: {res.status_code}"
+            print(debug_msg)
+            debug_info.append(debug_msg)
+            
             if res.status_code != 200:
-                print(f"❌ Error on page {page_count}: {res.status_code}")
-                print(f"   Response: {res.text}")
+                debug_msg = f"❌ Error on page {page_count}: {res.status_code}"
+                print(debug_msg)
+                debug_info.append(debug_msg)
+                debug_msg = f"   Response: {res.text}"
+                print(debug_msg)
+                debug_info.append(debug_msg)
                 break
 
             data = res.json().get("products", [])
-            print(f"📦 Found {len(data)} products on page {page_count}")
+            debug_msg = f"📦 Found {len(data)} products on page {page_count}"
+            print(debug_msg)
+            debug_info.append(debug_msg)
             
             if len(data) == 0:
-                print(f"   ⚠️  No products in response")
-                print(f"   Response keys: {list(res.json().keys())}")
+                debug_msg = f"   ⚠️  No products in response"
+                print(debug_msg)
+                debug_info.append(debug_msg)
+                debug_msg = f"   Response keys: {list(res.json().keys())}"
+                print(debug_msg)
+                debug_info.append(debug_msg)
             
             if not data:  # No more products
-                print(f"✅ No more products found on page {page_count}")
+                debug_msg = f"✅ No more products found on page {page_count}"
+                print(debug_msg)
+                debug_info.append(debug_msg)
                 break
             
             # Fetch metafields for each product
@@ -369,13 +391,19 @@ def update_cache():
 
             # Check for pagination using Link headers
             link = res.headers.get("link", "")
-            print(f"   🔗 Link header: {link}")
+            debug_msg = f"   🔗 Link header: {link}"
+            print(debug_msg)
+            debug_info.append(debug_msg)
             
             if 'rel="next"' in link:
                 page_info = link.split("page_info=")[1].split(">")[0]
-                print(f"   ➡️  Next page_info: {page_info}")
+                debug_msg = f"   ➡️  Next page_info: {page_info}"
+                print(debug_msg)
+                debug_info.append(debug_msg)
             else:
-                print(f"   ✅ No more pages available")
+                debug_msg = f"   ✅ No more pages available"
+                print(debug_msg)
+                debug_info.append(debug_msg)
                 break
             
             # Safety check - don't go beyond reasonable page count
@@ -391,10 +419,11 @@ def update_cache():
             return jsonify({
                 "status": "success",
                 "message": f"Cache updated with {len(all_products)} products",
-                "stats": stats
+                "stats": stats,
+                "debug": debug_info
             })
         else:
-            return jsonify({"status": "error", "message": "Failed to update cache"}), 500
+            return jsonify({"status": "error", "message": "Failed to update cache", "debug": debug_info}), 500
             
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
