@@ -55,11 +55,11 @@ def extract_vehicle_info(vehicle_data):
     except Exception as e:
         return None
 
-def search_shopify_by_oem(oem_number):
+def search_shopify_by_oem(oem_number, include_number=False):
     """Search Shopify products by OEM number using database cache"""
     try:
         # Use fast database search
-        products = search_products_by_oem(oem_number)
+        products = search_products_by_oem(oem_number, include_number=include_number)
         return products
     except Exception as e:
         print(f"Error searching database: {e}")
@@ -236,7 +236,7 @@ def car_parts_search():
             clean_oem = oem.replace(" ", "").upper()
             
             # Try exact match first
-            shopify_products = search_shopify_by_oem(clean_oem)
+            shopify_products = search_shopify_by_oem(clean_oem, include_number=False)
             
             # If no exact match, try partial matches (first 3-4 characters)
             if not shopify_products and len(clean_oem) >= 3:
@@ -249,7 +249,7 @@ def car_parts_search():
                 
                 for partial in partial_searches:
                     if len(partial) >= 3:
-                        shopify_products = search_shopify_by_oem(partial)
+                        shopify_products = search_shopify_by_oem(partial, include_number=False)
                         if shopify_products:
                             break
             
