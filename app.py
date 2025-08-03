@@ -330,14 +330,21 @@ def update_cache():
                 current_url += f"&page_info={page_info}"
             
             print(f"📥 Fetching page {page_count}...")
+            print(f"   URL: {current_url}")
             res = requests.get(current_url, headers=headers, timeout=30)
             
+            print(f"   Status: {res.status_code}")
             if res.status_code != 200:
                 print(f"❌ Error on page {page_count}: {res.status_code}")
+                print(f"   Response: {res.text}")
                 break
 
             data = res.json().get("products", [])
             print(f"📦 Found {len(data)} products on page {page_count}")
+            
+            if len(data) == 0:
+                print(f"   ⚠️  No products in response")
+                print(f"   Response keys: {list(res.json().keys())}")
             
             if not data:  # No more products
                 print(f"✅ No more products found on page {page_count}")
