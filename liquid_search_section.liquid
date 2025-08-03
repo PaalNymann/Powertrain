@@ -1,0 +1,324 @@
+<div class="powertrain-search-section" style="max-width: 800px; margin: 0 auto; padding: 20px;">
+  <h2 style="text-align: center; margin-bottom: 30px;">Søk etter bildeler</h2>
+  
+  <!-- Kombinert søkefelt -->
+  <div class="search-container" style="text-align: center; margin-bottom: 30px;">
+    <input 
+      type="text" 
+      id="searchInput" 
+      placeholder="Søk med skiltnr eller fritekst etter del"
+      style="
+        width: 100%;
+        max-width: 500px;
+        padding: 15px;
+        font-size: 16px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        margin-right: 10px;
+      "
+    >
+    <button 
+      onclick="performSearch()"
+      style="
+        padding: 15px 30px;
+        font-size: 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-top: 10px;
+      "
+    >
+      Søk
+    </button>
+  </div>
+
+  <!-- Resultater -->
+  <div id="searchResults" style="margin-top: 30px;"></div>
+</div>
+
+<style>
+  .powertrain-search-section {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  
+  .search-container button:hover {
+    background-color: #0056b3;
+  }
+  
+  .vehicle-info {
+    background-color: #e9f7ff;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border-left: 4px solid #007bff;
+  }
+  
+  .parts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+  }
+  
+  .part-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .part-card h4 {
+    margin-top: 0;
+    color: #333;
+    font-size: 18px;
+  }
+  
+  .part-price {
+    font-size: 20px;
+    font-weight: bold;
+    color: #28a745;
+    margin: 10px 0;
+  }
+  
+  .part-sku {
+    color: #666;
+    font-family: monospace;
+    background: #f8f9fa;
+    padding: 5px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+  }
+  
+  .error {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+    border-left: 4px solid #dc3545;
+  }
+  
+  .stats {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    justify-content: center;
+  }
+  
+  .stat-box {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    flex: 1;
+    max-width: 150px;
+    border: 1px solid #dee2e6;
+  }
+  
+  .stat-number {
+    font-size: 28px;
+    font-weight: bold;
+    color: #007bff;
+  }
+  
+  .no-results {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+    font-style: italic;
+  }
+  
+  .metafield-info {
+    font-size: 12px;
+    color: #666;
+    margin-top: 5px;
+    font-style: italic;
+  }
+</style>
+
+<script>
+  const API_BASE = 'https://web-production-0809b.up.railway.app';
+  
+  async function performSearch() {
+    const searchInput = document.getElementById('searchInput').value.trim();
+    const resultsDiv = document.getElementById('searchResults');
+    
+    if (!searchInput) {
+      resultsDiv.innerHTML = '<div class="error">Vennligst skriv inn et skiltnummer eller delnavn</div>';
+      return;
+    }
+    
+    resultsDiv.innerHTML = '<div class="loading">Søker etter deler...</div>';
+    
+    try {
+      // Sjekk om input ser ut som et skiltnummer (7 tegn, store bokstaver og tall)
+      const isLicensePlate = /^[A-Z0-9]{7}$/.test(searchInput.toUpperCase());
+      
+      let url;
+      if (isLicensePlate) {
+        url = `${API_BASE}/api/car_parts_search?regnr=${encodeURIComponent(searchInput.toUpperCase())}`;
+      } else {
+        url = `${API_BASE}/api/part_number_search?part_number=${encodeURIComponent(searchInput)}`;
+      }
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (response.ok) {
+        displayResults(data, isLicensePlate);
+      } else {
+        resultsDiv.innerHTML = `<div class="error">Feil: ${data.error || 'Ukjent feil'}</div>`;
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      resultsDiv.innerHTML = '<div class="error">Kunne ikke koble til serveren. Prøv igjen senere.</div>';
+    }
+  }
+  
+  function displayResults(data, isLicensePlate) {
+    const resultsDiv = document.getElementById('searchResults');
+    
+    if (isLicensePlate) {
+      // Skiltnummer søk - kun vis Shopify deler
+      let html = '';
+      
+      if (data.vehicle_info) {
+        html += `
+          <div class="vehicle-info">
+            <h3>${data.vehicle_info.make} ${data.vehicle_info.model}</h3>
+            <p><strong>År:</strong> ${data.vehicle_info.year}</p>
+          </div>
+        `;
+      }
+      
+      // Kun vis Shopify deler fra car_parts_search
+      if (data.shopify_parts && data.shopify_parts.length > 0) {
+        html += `
+          <div class="stats">
+            <div class="stat-box">
+              <div class="stat-number">${data.shopify_parts.length}</div>
+              <div>Deler på lager</div>
+            </div>
+          </div>
+          <div class="parts-grid">
+        `;
+        
+        data.shopify_parts.forEach(part => {
+          html += `
+            <div class="part-card">
+              <h4>${part.title}</h4>
+              <div class="part-price">${part.price} NOK</div>
+              <p><strong>SKU:</strong> <span class="part-sku">${part.sku || 'N/A'}</span></p>
+              ${part.metafield_key ? `<div class="metafield-info">Matchet på: ${part.metafield_key} = ${part.metafield_value}</div>` : ''}
+              <button onclick="addToCartWithVariant('${part.id}')" style="
+                background-color: #28a745;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                margin-top: 10px;
+              ">Legg i handlekurv</button>
+            </div>
+          `;
+        });
+        
+        html += '</div>';
+      } else {
+        html += '<div class="no-results">Ingen deler funnet på lager for denne bilen</div>';
+      }
+      
+      resultsDiv.innerHTML = html;
+    } else {
+      // Fritekst søk - vis produkter fra part_number_search
+      if (data.products && data.products.length > 0) {
+        let html = `
+          <div class="stats">
+            <div class="stat-box">
+              <div class="stat-number">${data.count || data.products.length}</div>
+              <div>Deler funnet</div>
+            </div>
+          </div>
+          <div class="parts-grid">
+        `;
+        
+        data.products.forEach(part => {
+          html += `
+            <div class="part-card">
+              <h4>${part.title}</h4>
+              <div class="part-price">${part.price} NOK</div>
+              <p><strong>SKU:</strong> <span class="part-sku">${part.sku || 'N/A'}</span></p>
+              ${part.metafield_key ? `<div class="metafield-info">Matchet på: ${part.metafield_key} = ${part.metafield_value}</div>` : ''}
+              <button onclick="addToCartWithVariant('${part.id}')" style="
+                background-color: #28a745;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                margin-top: 10px;
+              ">Legg i handlekurv</button>
+            </div>
+          `;
+        });
+        
+        html += '</div>';
+        resultsDiv.innerHTML = html;
+      } else {
+        resultsDiv.innerHTML = '<div class="no-results">Ingen deler funnet</div>';
+      }
+    }
+  }
+  
+  async function addToCartWithVariant(productId) {
+    try {
+      // First, get the variant ID from our backend
+      const response = await fetch(`${API_BASE}/api/shopify/variant/${productId}`);
+      const data = await response.json();
+      
+      if (response.ok && data.variant_id) {
+        // Now add to cart with variant ID
+        const cartResponse = await fetch('/cart/add.js', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({
+            id: data.variant_id,
+            quantity: 1
+          })
+        });
+        
+        if (cartResponse.ok) {
+          const cartData = await cartResponse.json();
+          console.log('Cart response:', cartData);
+          alert('Delen er lagt til i handlekurven!');
+        } else {
+          throw new Error('Cart request failed');
+        }
+      } else {
+        throw new Error('Could not get variant ID');
+      }
+    } catch (error) {
+      console.error('Add to cart error:', error);
+      alert('Kunne ikke legge til i handlekurv. Prøv igjen.');
+    }
+  }
+  
+  // Enter-tast funksjonalitet
+  document.getElementById('searchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      performSearch();
+    }
+  });
+</script> 
