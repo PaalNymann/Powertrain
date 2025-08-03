@@ -288,7 +288,7 @@ def part_number_search():
 
     try:
         print(f"🔍 Searching for part number: {part_number}")
-        matched_products = search_shopify_by_oem(part_number)
+        matched_products = search_shopify_by_oem(part_number, include_number=True)
         print(f"🔍 Found {len(matched_products)} products")
         return jsonify({
             "part_number": part_number,

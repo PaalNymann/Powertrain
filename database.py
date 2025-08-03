@@ -56,8 +56,8 @@ def get_db_session():
     Session = sessionmaker(bind=engine)
     return Session()
 
-def search_products_by_oem(oem_number):
-    """Search products by OEM number in all metafields except 'number'"""
+def search_products_by_oem(oem_number, include_number=False):
+    """Search products by OEM number in metafields"""
     if not oem_number:
         return []
     
@@ -66,12 +66,17 @@ def search_products_by_oem(oem_number):
         # Clean OEM number
         clean_oem = oem_number.upper().strip()
         
-        # Search in all metafields except 'number'
-        results = db.query(ProductMetafield).filter(
+        # Build query based on include_number parameter
+        query = db.query(ProductMetafield).filter(
             ProductMetafield.namespace == 'custom',
-            ProductMetafield.key != 'number',
             ProductMetafield.value.ilike(f"%{clean_oem}%")
-        ).all()
+        )
+        
+        # Exclude 'number' field only for license plate search (not free text)
+        if not include_number:
+            query = query.filter(ProductMetafield.key != 'number')
+        
+        results = query.all()
         
         products = []
         for metafield in results:
@@ -99,6 +104,8 @@ def search_products_by_oem(oem_number):
         return []
     finally:
         db.close()
+
+
 
 def update_shopify_cache(products_data):
     """Update Shopify product cache"""
