@@ -232,13 +232,39 @@ def car_parts_search():
         # Step 4: Match OEM numbers against Shopify metafields
         shopify_matches = []
         for oem in tecdoc_oem_numbers:
-            shopify_products = search_shopify_by_oem(oem)
+            # Clean OEM number (remove spaces and convert to uppercase)
+            clean_oem = oem.replace(" ", "").upper()
+            
+            # Try exact match first
+            shopify_products = search_shopify_by_oem(clean_oem)
+            
+            # If no exact match, try partial matches (first 3-4 characters)
+            if not shopify_products and len(clean_oem) >= 3:
+                # Try different partial matches
+                partial_searches = [
+                    clean_oem[:3],  # First 3 chars (e.g., "1K0")
+                    clean_oem[:4],  # First 4 chars (e.g., "1K04")
+                    clean_oem[:6]   # First 6 chars (e.g., "1K0407")
+                ]
+                
+                for partial in partial_searches:
+                    if len(partial) >= 3:
+                        shopify_products = search_shopify_by_oem(partial)
+                        if shopify_products:
+                            break
+            
             for shopify_product in shopify_products:
                 shopify_matches.append({
                     "matching_oem": oem,
                     "shopify_product": shopify_product,
                     "rackbeat_part": next((p for p in rackbeat_parts if p["number"] == oem), None)
                 })
+        
+        # Extract Shopify products from matches for frontend compatibility
+        shopify_parts = []
+        for match in shopify_matches:
+            if match["shopify_product"]:
+                shopify_parts.append(match["shopify_product"])
         
         return jsonify({
             "vehicle_info": vehicle_info,
@@ -247,7 +273,8 @@ def car_parts_search():
             "rackbeat_parts": rackbeat_parts,
             "rackbeat_status": rackbeat_status,
             "shopify_matches": shopify_matches,
-            "total_shopify_matches": len(shopify_matches)
+            "shopify_parts": shopify_parts,  # Frontend expects this
+            "total_shopify_matches": len(shopify_parts)  # Count of actual products
         })
         
     except Exception as e:
