@@ -11,8 +11,7 @@ Base = declarative_base()
 class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
-    id = Column(String, primary_key=True)  # Product ID
-    variant_id = Column(String)  # Variant ID for cart
+    id = Column(String, primary_key=True)
     title = Column(String)
     handle = Column(String)
     sku = Column(String)
@@ -83,7 +82,7 @@ def search_products_by_oem(oem_number):
             
             if product:
                 products.append({
-                    'id': product.variant_id,  # Use variant_id for cart
+                    'id': product.id,
                     'title': product.title,
                     'handle': product.handle,
                     'sku': product.sku,
@@ -120,15 +119,13 @@ def update_shopify_cache(products_data):
         for i, product_data in enumerate(products_data):
             try:
                 # Create product
-                variant = product_data.get('variants', [{}])[0]
                 product = ShopifyProduct(
                     id=product_data['id'],
-                    variant_id=variant.get('id', ''),  # Variant ID for cart
                     title=product_data['title'],
                     handle=product_data['handle'],
-                    sku=variant.get('sku', ''),
-                    price=float(variant.get('price', 0)),
-                    inventory_quantity=int(variant.get('inventory_quantity', 0))
+                    sku=product_data.get('sku', ''),
+                    price=float(product_data.get('variants', [{}])[0].get('price', 0)),
+                    inventory_quantity=int(product_data.get('variants', [{}])[0].get('inventory_quantity', 0))
                 )
                 db.add(product)
                 total_products += 1
