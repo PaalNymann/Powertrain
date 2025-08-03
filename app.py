@@ -338,6 +338,10 @@ def update_cache():
             print(debug_msg)
             debug_info.append(debug_msg)
             
+            # Rate limiting: wait 0.5 seconds between requests to respect Shopify's 2 calls/second limit
+            if page_count > 1:
+                time.sleep(0.5)
+                
             res = requests.get(current_url, headers=headers, timeout=30)
             
             debug_msg = f"   Status: {res.status_code}"
@@ -376,6 +380,11 @@ def update_cache():
             for i, product in enumerate(data):
                 product_id = product["id"]
                 metafields_url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products/{product_id}/metafields.json"
+                
+                # Rate limiting for metafield calls
+                if i > 0 and i % 2 == 0:  # Wait every 2 calls
+                    time.sleep(0.5)
+                    
                 meta_res = requests.get(metafields_url, headers=headers, timeout=10)
                 
                 if meta_res.status_code == 200:
