@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template
 import requests
 from flask_cors import CORS
 import os
+import time
 from dotenv import load_dotenv
 from svv_client import hent_kjoretoydata
 from database import init_db, search_products_by_oem, update_shopify_cache, get_cache_stats
