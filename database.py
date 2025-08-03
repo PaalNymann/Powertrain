@@ -30,7 +30,7 @@ class ProductMetafield(Base):
     value = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
+    
 
 def get_database_url():
     """Get database URL from environment or use SQLite"""
@@ -104,37 +104,51 @@ def update_shopify_cache(products_data):
     """Update Shopify product cache"""
     db = get_db_session()
     try:
-        # Clear existing data
+        # Clear existing data and commit immediately
+        print(f"🗑️  Clearing existing data...")
         db.query(ShopifyProduct).delete()
         db.query(ProductMetafield).delete()
+        db.commit()
+        print(f"✅ Existing data cleared")
         
         total_products = 0
         total_metafields = 0
         
-        for product_data in products_data:
-            # Create product
-            product = ShopifyProduct(
-                id=product_data['id'],
-                title=product_data['title'],
-                handle=product_data['handle'],
-                sku=product_data.get('sku', ''),
-                price=float(product_data.get('variants', [{}])[0].get('price', 0)),
-                inventory_quantity=int(product_data.get('variants', [{}])[0].get('inventory_quantity', 0))
-            )
-            db.add(product)
-            total_products += 1
-            
-            # Process metafields
-            for metafield_data in product_data.get('metafields', []):
-                metafield = ProductMetafield(
-                    id=metafield_data['id'],
-                    product_id=product_data['id'],
-                    namespace=metafield_data['namespace'],
-                    key=metafield_data['key'],
-                    value=metafield_data['value']
+        print(f"📦 Processing {len(products_data)} products...")
+        
+        for i, product_data in enumerate(products_data):
+            try:
+                # Create product
+                product = ShopifyProduct(
+                    id=product_data['id'],
+                    title=product_data['title'],
+                    handle=product_data['handle'],
+                    sku=product_data.get('sku', ''),
+                    price=float(product_data.get('variants', [{}])[0].get('price', 0)),
+                    inventory_quantity=int(product_data.get('variants', [{}])[0].get('inventory_quantity', 0))
                 )
-                db.add(metafield)
-                total_metafields += 1
+                db.add(product)
+                total_products += 1
+                
+                # Process metafields
+                for metafield_data in product_data.get('metafields', []):
+                    metafield = ProductMetafield(
+                        id=metafield_data['id'],
+                        product_id=product_data['id'],
+                        namespace=metafield_data['namespace'],
+                        key=metafield_data['key'],
+                        value=metafield_data['value']
+                    )
+                    db.add(metafield)
+                    total_metafields += 1
+                
+                # Progress indicator
+                if (i + 1) % 50 == 0:
+                    print(f"   📋 Processed {i + 1}/{len(products_data)} products")
+                    
+            except Exception as e:
+                print(f"⚠️  Error processing product {product_data.get('id', 'unknown')}: {e}")
+                continue
                 
 
         
