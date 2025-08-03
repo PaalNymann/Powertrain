@@ -327,6 +327,30 @@ def create_shopify_product():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/shopify/variant/<product_id>')
+def get_variant_id(product_id):
+    """Get variant ID for a given product ID"""
+    try:
+        url = f"https://{SHOPIFY_DOMAIN}/admin/api/{SHOPIFY_VERSION}/products/{product_id}.json"
+        headers = {
+            'X-Shopify-Access-Token': SHOPIFY_TOKEN,
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            product_data = response.json().get('product', {})
+            variants = product_data.get('variants', [])
+            if variants:
+                return jsonify({
+                    'variant_id': str(variants[0]['id']),
+                    'product_id': product_id
+                })
+        
+        return jsonify({'error': 'No variant found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/')
 def index():
     return render_template('index.html')
