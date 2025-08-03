@@ -106,8 +106,8 @@ def update_shopify_cache(products_data):
     try:
         # Clear existing data and commit immediately
         print(f"🗑️  Clearing existing data...")
-        db.query(ShopifyProduct).delete()
-        db.query(ProductMetafield).delete()
+        db.execute("DELETE FROM product_metafields")
+        db.execute("DELETE FROM shopify_products")
         db.commit()
         print(f"✅ Existing data cleared")
         
