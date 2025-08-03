@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -106,8 +106,8 @@ def update_shopify_cache(products_data):
     try:
         # Clear existing data and commit immediately
         print(f"🗑️  Clearing existing data...")
-        db.execute("DELETE FROM product_metafields")
-        db.execute("DELETE FROM shopify_products")
+        db.execute(text("DELETE FROM product_metafields"))
+        db.execute(text("DELETE FROM shopify_products"))
         db.commit()
         print(f"✅ Existing data cleared")
         
