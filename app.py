@@ -99,7 +99,8 @@ def query_tecdoc_api(vehicle_info):
         mecaparts_endpoint = os.getenv('MECAPARTS_ENDPOINT')
         if not mecaparts_endpoint:
             print("❌ MECAPARTS_ENDPOINT not configured")
-            return oem_numbers
+            print("⚠️  Please configure MECAPARTS_ENDPOINT environment variable")
+            return []
         
         # Build query parameters for MecaParts API
         params = {
@@ -232,17 +233,9 @@ def car_parts_search():
         rackbeat_status = "Not implemented"
         
         try:
-            # For now, we'll create sample Rackbeat parts based on OEM numbers
-            # In a real implementation, this would call the Rackbeat API
-            for oem in tecdoc_oem_numbers:
-                rackbeat_parts.append({
-                    "name": f"Sample part for {oem}",
-                    "number": oem,
-                    "sales_price": "299.00",
-                    "available_quantity": 5,
-                    "description": f"Sample description for {oem}"
-                })
-            rackbeat_status = "Success" if rackbeat_parts else "No parts found"
+            # TODO: Implement real Rackbeat API call
+            # This should call the actual Rackbeat API to get real parts data
+            rackbeat_status = "Rackbeat API not yet implemented"
         except Exception as e:
             rackbeat_status = f"Error: {str(e)}"
         
