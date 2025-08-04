@@ -102,18 +102,32 @@ def query_tecdoc_api(vehicle_info):
             print("⚠️  Please configure MECAPARTS_ENDPOINT environment variable")
             return []
         
-        # Build query parameters for MecaParts API
+        # Build query parameters for MecaParts via Shopify API
         params = {
             'make': make,
             'model': model,
             'year': year
         }
         
-        print(f"🔍 Calling MecaParts API: {mecaparts_endpoint}")
+        # Get Shopify credentials for API call
+        shopify_domain = os.getenv('SHOPIFY_DOMAIN')
+        shopify_token = os.getenv('SHOPIFY_TOKEN')
+        
+        if not shopify_domain or not shopify_token:
+            print("❌ SHOPIFY_DOMAIN or SHOPIFY_TOKEN not configured")
+            return oem_numbers
+        
+        # Headers for Shopify API authentication
+        headers = {
+            'X-Shopify-Access-Token': shopify_token,
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"🔍 Calling MecaParts via Shopify API: {mecaparts_endpoint}")
         print(f"📋 Parameters: {params}")
         
-        # Make API call to MecaParts
-        response = requests.get(mecaparts_endpoint, params=params, timeout=30)
+        # Make API call to MecaParts via Shopify API
+        response = requests.get(mecaparts_endpoint, params=params, headers=headers, timeout=30)
         
         if response.status_code == 200:
             mecaparts_data = response.json()

@@ -42,7 +42,7 @@ This guide covers deploying the Powertrain Vehicle Parts System to Railway with 
    SHOPIFY_DOMAIN=your_shopify_domain.myshopify.com
    SHOPIFY_TOKEN=your_shopify_token_here
    SHOPIFY_VERSION=2023-10
-   MECAPARTS_ENDPOINT=https://your_shopify_domain.myshopify.com/apps/mecaparts/api/vehicle_parts
+   MECAPARTS_ENDPOINT=https://your_shopify_domain.myshopify.com/admin/api/2023-10/apps/mecaparts/api/vehicle_parts
    PORT_APP=8000
    ```
 
