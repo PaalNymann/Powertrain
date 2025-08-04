@@ -85,117 +85,108 @@ def extract_oem_numbers(description):
     return filtered_matches
 
 def query_tecdoc_api(vehicle_info):
-    """Query TecDoc API directly for OEM numbers"""
+    """Query TecDoc API via MecaParts for OEM numbers"""
     oem_numbers = []
     
     try:
-        # For now, we'll simulate TecDoc API call with sample OEM numbers
-        # In production, this would be a real TecDoc API integration
-        
         make = vehicle_info.get("make", "").upper()
         model = vehicle_info.get("model", "").upper()
         year = vehicle_info.get("year", "")
         
-        print(f"Querying TecDoc for: {make} {model} {year}")
+        print(f"Querying MecaParts/TecDoc for: {make} {model} {year}")
         
-        # TODO: Implement real TecDoc API call here
-        # For now, return realistic OEM numbers based on vehicle type
+        # Get MecaParts endpoint from environment
+        mecaparts_endpoint = os.getenv('MECAPARTS_ENDPOINT')
+        if not mecaparts_endpoint:
+            print("❌ MECAPARTS_ENDPOINT not configured")
+            return oem_numbers
         
-        if "BMW" in make:
-            # BMW X5 typical OEM numbers
-            oem_numbers = [
-                "34116851147",  # BMW X5 brake pad
-                "34116851148",  # BMW X5 brake disc
-                "11427512345"   # BMW X5 air filter
-            ]
-        elif "VOLKSWAGEN" in make:
-            # VW typical OEM numbers
-            oem_numbers = [
-                "1K0 407 151",  # VW brake pad
-                "1K0 407 152",  # VW brake disc
-                "1K0 129 620",  # VW air filter
-                "1K0 115 561",  # VW oil filter
-                "1K0 127 434",  # VW fuel filter
-                "1K0 819 653",  # VW cabin filter
-                "101 000 062",  # VW spark plug
-                "06H 905 115",  # VW ignition coil
-                "03C 109 119",  # VW timing belt
-                "06A 121 011"   # VW water pump
-            ]
-        elif "VOLVO" in make:
-            # Volvo V70 typical OEM numbers (based on customer feedback)
-            oem_numbers = [
-                "8252034",  # Volvo V70 drivaksel
-                "8252035",  # Volvo V70 drivaksel
-                "8252043",  # Volvo V70 drivaksel
-                "30735120",  # Volvo V70 drivaksel
-                "30735349",  # Volvo V70 drivaksel
-                "30783083",  # Volvo V70 drivaksel
-                "30783085",  # Volvo V70 drivaksel
-                "36000520",  # Volvo V70 drivaksel
-                "36000526",  # Volvo V70 drivaksel
-                "8601855",   # Volvo V70 drivaksel
-                "8601859",   # Volvo V70 drivaksel
-                "8602577",   # Volvo V70 drivaksel
-                "8602591",   # Volvo V70 drivaksel
-                "8602842",   # Volvo V70 drivaksel
-                "86028420",  # Volvo V70 drivaksel
-                "8603794",   # Volvo V70 drivaksel
-                "8603795",   # Volvo V70 drivaksel
-                "8689213",   # Volvo V70 drivaksel
-                "8689227",   # Volvo V70 drivaksel
-                "8689872",   # Volvo V70 drivaksel
-                "9181255",   # Volvo V70 drivaksel
-                "9181261"    # Volvo V70 drivaksel
-            ]
-        elif "MERCEDES" in make:
-            # Mercedes typical OEM numbers
-            oem_numbers = [
-                "A0004200108",  # Mercedes brake pad
-                "A0004200109",  # Mercedes brake disc
-                "A0000940104",  # Mercedes air filter
-                "A0001800209",  # Mercedes oil filter
-                "A0004700108",  # Mercedes fuel filter
-                "A0000940104",  # Mercedes cabin filter
-                "A0001592201",  # Mercedes spark plug
-                "A0001592202",  # Mercedes ignition coil
-                "A0009930104",  # Mercedes timing belt
-                "A0002000201"   # Mercedes water pump
-            ]
+        # Build query parameters for MecaParts API
+        params = {
+            'make': make,
+            'model': model,
+            'year': year
+        }
+        
+        print(f"🔍 Calling MecaParts API: {mecaparts_endpoint}")
+        print(f"📋 Parameters: {params}")
+        
+        # Make API call to MecaParts
+        response = requests.get(mecaparts_endpoint, params=params, timeout=30)
+        
+        if response.status_code == 200:
+            mecaparts_data = response.json()
+            print(f"✅ MecaParts API response received")
+            
+            # Extract OEM numbers from MecaParts response
+            oem_numbers = extract_oem_numbers_from_mecaparts(mecaparts_data)
+            print(f"📦 Extracted {len(oem_numbers)} OEM numbers from MecaParts")
+            
         else:
-            # Generic OEM numbers for other vehicles
-            oem_numbers = [
-                "GENERIC001",  # Generic brake pad
-                "GENERIC002",  # Generic brake disc
-                "GENERIC003"   # Generic air filter
-            ]
-        
-        print(f"Found {len(oem_numbers)} OEM numbers from TecDoc")
-        return oem_numbers
-        
+            print(f"❌ MecaParts API error: {response.status_code}")
+            print(f"Response: {response.text}")
+            
     except Exception as e:
-        print(f"Error querying TecDoc API: {e}")
-        return oem_numbers
+        print(f"❌ Error querying MecaParts/TecDoc API: {e}")
+        
+    return oem_numbers
 
 def extract_oem_numbers_from_mecaparts(mecaparts_data):
     """Extract OEM numbers from MecaParts/TecDoc API response"""
     oem_numbers = []
     
     try:
-        # This function needs to be implemented based on the actual MecaParts API response structure
-        # For now, we'll return an empty list until we know the exact response format
+        print(f"🔍 Parsing MecaParts response...")
+        print(f"📋 Response keys: {list(mecaparts_data.keys()) if isinstance(mecaparts_data, dict) else 'Not a dict'}")
         
-        # Example structure (this needs to be updated based on actual API):
-        # if 'parts' in mecaparts_data:
-        #     for part in mecaparts_data['parts']:
-        #         if 'oem_numbers' in part:
-        #             oem_numbers.extend(part['oem_numbers'])
+        # Handle different possible response structures
+        if isinstance(mecaparts_data, dict):
+            # Try different possible response formats
+            if 'parts' in mecaparts_data:
+                parts = mecaparts_data['parts']
+                print(f"📦 Found {len(parts)} parts in response")
+                
+                for part in parts:
+                    # Extract OEM numbers from various possible fields
+                    oem_fields = ['oem_numbers', 'oem', 'original_numbers', 'original_nummer', 'part_numbers']
+                    
+                    for field in oem_fields:
+                        if field in part and part[field]:
+                            if isinstance(part[field], list):
+                                oem_numbers.extend(part[field])
+                            elif isinstance(part[field], str):
+                                # Handle comma-separated OEM numbers
+                                numbers = [num.strip() for num in part[field].split(',') if num.strip()]
+                                oem_numbers.extend(numbers)
+                            break
+                    
+                    # Also check if OEM number is directly in the part
+                    if 'oem_number' in part and part['oem_number']:
+                        oem_numbers.append(part['oem_number'])
+                        
+            elif 'oem_numbers' in mecaparts_data:
+                # Direct OEM numbers array
+                oem_numbers = mecaparts_data['oem_numbers']
+                
+            elif 'data' in mecaparts_data:
+                # Nested data structure
+                data = mecaparts_data['data']
+                if isinstance(data, list):
+                    for item in data:
+                        if 'oem_number' in item:
+                            oem_numbers.append(item['oem_number'])
+                elif isinstance(data, dict):
+                    oem_numbers = extract_oem_numbers_from_mecaparts(data)
         
-        print(f"MecaParts response structure: {mecaparts_data}")
+        # Remove duplicates and clean up
+        oem_numbers = list(set([str(num).strip() for num in oem_numbers if num and str(num).strip()]))
+        
+        print(f"✅ Extracted {len(oem_numbers)} unique OEM numbers: {oem_numbers[:10]}...")
         return oem_numbers
         
     except Exception as e:
-        print(f"Error extracting OEM numbers from MecaParts: {e}")
+        print(f"❌ Error extracting OEM numbers from MecaParts: {e}")
+        print(f"📋 Full response: {mecaparts_data}")
         return oem_numbers
 
 @app.route('/api/statens_vegvesen')
