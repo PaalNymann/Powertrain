@@ -73,6 +73,7 @@ def search_products_by_oem(oem_number, include_number=False):
         )
         
         # Exclude 'number' field only for license plate search (not free text)
+        # But include 'original_nummer' field which contains OEM numbers
         if not include_number:
             query = query.filter(ProductMetafield.key != 'number')
         
@@ -186,4 +187,6 @@ def get_cache_stats():
         print(f"Error getting cache stats: {e}")
         return {'products': 0, 'metafields': 0}
     finally:
-        db.close() 
+        db.close()
+
+ 

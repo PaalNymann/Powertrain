@@ -119,6 +119,18 @@
             font-weight: bold;
             color: #007bff;
         }
+        
+
+        
+        .clickable-card {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .clickable-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
     </style>
 </head>
 <body>
@@ -143,8 +155,10 @@
         <div id="results"></div>
     </div>
 
+
+
     <script>
-        const API_BASE = 'http://localhost:8000';
+        const API_BASE = 'https://web-production-0809b.up.railway.app';
 
         async function searchByLicensePlate() {
             const licensePlate = document.getElementById('licensePlate').value.trim();
@@ -253,14 +267,15 @@
                     const rackbeatPart = match.rackbeat_part;
                     
                     html += `
-                        <div class="part-card">
+                        <div class="part-card clickable-card" onclick="window.open('https://powertrain-system.myshopify.com/products/${shopifyProduct.handle}', '_blank')">
                             <div class="shopify-match">
                                 <h4>${shopifyProduct.title}</h4>
-                                <p class="part-sku">SKU: ${shopifyProduct.variants?.[0]?.sku || 'N/A'}</p>
-                                <p class="part-price">${shopifyProduct.variants?.[0]?.price || 'N/A'} NOK</p>
+                                <p class="part-sku">SKU: ${shopifyProduct.sku || 'N/A'}</p>
+                                <p class="part-price">${shopifyProduct.price || 'N/A'} NOK</p>
                                 <p><strong>Matching OEM:</strong> ${match.matching_oem}</p>
-                                <p><strong>Rackbeat Part:</strong> ${rackbeatPart.name}</p>
-                                <a href="https://${shopifyProduct.handle}" target="_blank" style="color: #007bff;">View Product</a>
+                                <p><strong>Rackbeat Part:</strong> ${rackbeatPart ? rackbeatPart.name : 'N/A'}</p>
+                                <p><strong>Stock:</strong> ${shopifyProduct.inventory_quantity || 0}</p>
+                                <p style="color: #007bff; font-weight: bold;">Click to view product →</p>
                             </div>
                         </div>
                     `;
@@ -289,11 +304,13 @@
                 
                 data.products.forEach(product => {
                     html += `
-                        <div class="part-card">
+                        <div class="part-card clickable-card" onclick="window.open('https://powertrain-system.myshopify.com/products/${product.handle}', '_blank')">
                             <h4>${product.title}</h4>
-                            <p class="part-sku">SKU: ${product.variants?.[0]?.sku || 'N/A'}</p>
-                            <p class="part-price">${product.variants?.[0]?.price || 'N/A'} NOK</p>
-                            <a href="https://${product.handle}" target="_blank" style="color: #007bff;">View Product</a>
+                            <p class="part-sku">SKU: ${product.sku || 'N/A'}</p>
+                            <p class="part-price">${product.price || 'N/A'} NOK</p>
+                            <p><strong>Stock:</strong> ${product.inventory_quantity || 0}</p>
+                            <p><strong>Matching:</strong> ${product.matching_part_number}</p>
+                            <p style="color: #007bff; font-weight: bold;">Click to view product →</p>
                         </div>
                     `;
                 });
@@ -337,6 +354,8 @@
                 searchByText();
             }
         });
+
+
     </script>
 </body>
 </html> 

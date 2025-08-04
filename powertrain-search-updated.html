@@ -68,6 +68,13 @@
     padding: 20px;
     background: white;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  
+  .part-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
   }
   
   .part-card h4 {
@@ -143,6 +150,28 @@
     margin-top: 5px;
     font-style: italic;
   }
+  
+  .click-hint {
+    text-align: center;
+    padding: 10px;
+    background: #e9f7ff;
+    border-radius: 6px;
+    color: #007bff;
+    font-weight: bold;
+    font-size: 14px;
+    margin-top: 15px;
+  }
+  
+  .clickable-title {
+    cursor: pointer;
+    color: #007bff;
+    transition: color 0.2s;
+  }
+  
+  .clickable-title:hover {
+    color: #0056b3;
+    text-decoration: underline;
+  }
 </style>
 
 <script>
@@ -215,7 +244,7 @@
         data.shopify_parts.forEach(part => {
           html += `
             <div class="part-card">
-              <h4>${part.title}</h4>
+              <h4 class="clickable-title" onclick="window.open('https://bm0did-zc.myshopify.com/products/${part.handle}', '_blank')">${part.title}</h4>
               <div class="part-price">${part.price} NOK</div>
               ${part.sku ? `<p><strong>SKU:</strong> <span class="part-sku">${part.sku}</span></p>` : ''}
               ${part.metafield_key ? `<div class="metafield-info">Matchet på: ${part.metafield_key} = ${part.metafield_value}</div>` : ''}
@@ -254,7 +283,7 @@
         data.products.forEach(part => {
           html += `
             <div class="part-card">
-              <h4>${part.title}</h4>
+              <h4 class="clickable-title" onclick="window.open('https://bm0did-zc.myshopify.com/products/${part.handle}', '_blank')">${part.title}</h4>
               <div class="part-price">${part.price} NOK</div>
               ${part.sku ? `<p><strong>SKU:</strong> <span class="part-sku">${part.sku}</span></p>` : ''}
               ${part.metafield_key ? `<div class="metafield-info">Matchet på: ${part.metafield_key} = ${part.metafield_value}</div>` : ''}

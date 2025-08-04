@@ -122,6 +122,32 @@ def query_tecdoc_api(vehicle_info):
                 "03C 109 119",  # VW timing belt
                 "06A 121 011"   # VW water pump
             ]
+        elif "VOLVO" in make:
+            # Volvo V70 typical OEM numbers (based on customer feedback)
+            oem_numbers = [
+                "8252034",  # Volvo V70 drivaksel
+                "8252035",  # Volvo V70 drivaksel
+                "8252043",  # Volvo V70 drivaksel
+                "30735120",  # Volvo V70 drivaksel
+                "30735349",  # Volvo V70 drivaksel
+                "30783083",  # Volvo V70 drivaksel
+                "30783085",  # Volvo V70 drivaksel
+                "36000520",  # Volvo V70 drivaksel
+                "36000526",  # Volvo V70 drivaksel
+                "8601855",   # Volvo V70 drivaksel
+                "8601859",   # Volvo V70 drivaksel
+                "8602577",   # Volvo V70 drivaksel
+                "8602591",   # Volvo V70 drivaksel
+                "8602842",   # Volvo V70 drivaksel
+                "86028420",  # Volvo V70 drivaksel
+                "8603794",   # Volvo V70 drivaksel
+                "8603795",   # Volvo V70 drivaksel
+                "8689213",   # Volvo V70 drivaksel
+                "8689227",   # Volvo V70 drivaksel
+                "8689872",   # Volvo V70 drivaksel
+                "9181255",   # Volvo V70 drivaksel
+                "9181261"    # Volvo V70 drivaksel
+            ]
         elif "MERCEDES" in make:
             # Mercedes typical OEM numbers
             oem_numbers = [
@@ -505,6 +531,8 @@ def cache_stats():
         return jsonify(stats)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
 
 if __name__ == '__main__':
     # Initialize database
