@@ -1,0 +1,435 @@
+{% comment %}
+  Product Details Template for Shopify
+  Shows all product information including metafields from our database
+{% endcomment %}
+
+<div class="product-details-container">
+  <div class="product-header">
+    <h1>{{ product.title }}</h1>
+    <div class="product-price">
+      <span class="price">{{ product.price | money }}</span>
+      {% if product.compare_at_price > product.price %}
+        <span class="compare-price">{{ product.compare_at_price | money }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="product-grid">
+    <!-- Product Images -->
+    <div class="product-images">
+      {% for image in product.images %}
+        <div class="product-image">
+          <img src="{{ image | img_url: 'large' }}" alt="{{ image.alt | escape }}">
+        </div>
+      {% endfor %}
+    </div>
+
+    <!-- Product Information -->
+    <div class="product-info">
+      <!-- Basic Product Details -->
+      <div class="info-section">
+        <h3>📋 Produktinformasjon</h3>
+        <div class="info-grid">
+          <div class="info-item">
+            <strong>Produkt ID:</strong> {{ product.id }}
+          </div>
+          <div class="info-item">
+            <strong>Handle:</strong> {{ product.handle }}
+          </div>
+          <div class="info-item">
+            <strong>SKU:</strong> {{ product.variants.first.sku | default: 'N/A' }}
+          </div>
+          <div class="info-item">
+            <strong>Lager:</strong> {{ product.variants.first.inventory_quantity | default: 0 }}
+          </div>
+          <div class="info-item">
+            <strong>Type:</strong> {{ product.type | default: 'N/A' }}
+          </div>
+          <div class="info-item">
+            <strong>Vendor:</strong> {{ product.vendor | default: 'N/A' }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Metafields Section -->
+      <div class="info-section">
+        <h3>🏷️ Tekniske Detaljer</h3>
+        <div class="metafields-grid">
+          {% comment %} OEM Numbers {% endcomment %}
+          {% if product.metafields.custom.oem %}
+            <div class="metafield-item oem">
+              <div class="metafield-key">OEM Nummer</div>
+              <div class="metafield-value">{{ product.metafields.custom.oem }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.number %}
+            <div class="metafield-item number">
+              <div class="metafield-key">Artikkelnummer</div>
+              <div class="metafield-value">{{ product.metafields.custom.number }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.brand %}
+            <div class="metafield-item brand">
+              <div class="metafield-key">Merke</div>
+              <div class="metafield-value">{{ product.metafields.custom.brand }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.category %}
+            <div class="metafield-item category">
+              <div class="metafield-key">Kategori</div>
+              <div class="metafield-value">{{ product.metafields.custom.category }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.subcategory %}
+            <div class="metafield-item subcategory">
+              <div class="metafield-key">Underkategori</div>
+              <div class="metafield-value">{{ product.metafields.custom.subcategory }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.vehicle_make %}
+            <div class="metafield-item vehicle">
+              <div class="metafield-key">Bilmerke</div>
+              <div class="metafield-value">{{ product.metafields.custom.vehicle_make }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.vehicle_model %}
+            <div class="metafield-item vehicle">
+              <div class="metafield-key">Bilmodell</div>
+              <div class="metafield-value">{{ product.metafields.custom.vehicle_model }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.vehicle_year %}
+            <div class="metafield-item vehicle">
+              <div class="metafield-key">Årsmodell</div>
+              <div class="metafield-value">{{ product.metafields.custom.vehicle_year }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.engine %}
+            <div class="metafield-item engine">
+              <div class="metafield-key">Motor</div>
+              <div class="metafield-value">{{ product.metafields.custom.engine }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.part_type %}
+            <div class="metafield-item part-type">
+              <div class="metafield-key">Deltype</div>
+              <div class="metafield-value">{{ product.metafields.custom.part_type }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.material %}
+            <div class="metafield-item material">
+              <div class="metafield-key">Materiale</div>
+              <div class="metafield-value">{{ product.metafields.custom.material }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.dimensions %}
+            <div class="metafield-item dimensions">
+              <div class="metafield-key">Dimensjoner</div>
+              <div class="metafield-value">{{ product.metafields.custom.dimensions }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.weight %}
+            <div class="metafield-item weight">
+              <div class="metafield-key">Vekt</div>
+              <div class="metafield-value">{{ product.metafields.custom.weight }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.quality %}
+            <div class="metafield-item quality">
+              <div class="metafield-key">Kvalitet</div>
+              <div class="metafield-value">{{ product.metafields.custom.quality }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.warranty %}
+            <div class="metafield-item warranty">
+              <div class="metafield-key">Garanti</div>
+              <div class="metafield-value">{{ product.metafields.custom.warranty }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.rackbeat_id %}
+            <div class="metafield-item rackbeat">
+              <div class="metafield-key">Rackbeat ID</div>
+              <div class="metafield-value">{{ product.metafields.custom.rackbeat_id }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.rackbeat_price %}
+            <div class="metafield-item rackbeat">
+              <div class="metafield-key">Rackbeat Pris</div>
+              <div class="metafield-value">{{ product.metafields.custom.rackbeat_price }}</div>
+            </div>
+          {% endif %}
+
+          {% if product.metafields.custom.rackbeat_stock %}
+            <div class="metafield-item rackbeat">
+              <div class="metafield-key">Rackbeat Lager</div>
+              <div class="metafield-value">{{ product.metafields.custom.rackbeat_stock }}</div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Product Description -->
+      {% if product.description %}
+        <div class="info-section">
+          <h3>📝 Beskrivelse</h3>
+          <div class="description">
+            {{ product.description }}
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Add to Cart Section -->
+      <div class="add-to-cart-section">
+        <form action="/cart/add" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="id" value="{{ product.variants.first.id }}">
+          <div class="quantity-selector">
+            <label for="quantity">Antall:</label>
+            <input type="number" id="quantity" name="quantity" value="1" min="1" max="{{ product.variants.first.inventory_quantity }}">
+          </div>
+          <button type="submit" class="add-to-cart-btn" {% unless product.available %}disabled{% endunless %}>
+            {% if product.available %}
+              🛒 Legg til i handlekurv
+            {% else %}
+              🔴 Ikke på lager
+            {% endif %}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.product-details-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.product-header {
+  text-align: center;
+  margin-bottom: 40px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.product-header h1 {
+  font-size: 2.5rem;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.product-price {
+  font-size: 1.5rem;
+}
+
+.price {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.compare-price {
+  color: #6c757d;
+  text-decoration: line-through;
+  margin-left: 10px;
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: start;
+}
+
+.product-images {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.product-image img {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.info-section {
+  background: #f8f9fa;
+  padding: 25px;
+  border-radius: 10px;
+  border-left: 4px solid #007bff;
+}
+
+.info-section h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 1.3rem;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.info-item {
+  padding: 10px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.metafields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 15px;
+}
+
+.metafield-item {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metafield-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.metafield-key {
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 5px;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metafield-value {
+  color: #666;
+  font-size: 1.1rem;
+  word-break: break-word;
+}
+
+/* Special styling for different metafield types */
+.metafield-item.oem {
+  border-left: 4px solid #dc3545;
+}
+
+.metafield-item.number {
+  border-left: 4px solid #28a745;
+}
+
+.metafield-item.brand {
+  border-left: 4px solid #ffc107;
+}
+
+.metafield-item.vehicle {
+  border-left: 4px solid #17a2b8;
+}
+
+.metafield-item.engine {
+  border-left: 4px solid #6f42c1;
+}
+
+.metafield-item.rackbeat {
+  border-left: 4px solid #fd7e14;
+}
+
+.description {
+  line-height: 1.6;
+  color: #555;
+}
+
+.add-to-cart-section {
+  background: #e9f7ff;
+  padding: 25px;
+  border-radius: 10px;
+  border: 2px solid #007bff;
+}
+
+.quantity-selector {
+  margin-bottom: 20px;
+}
+
+.quantity-selector label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #333;
+}
+
+.quantity-selector input {
+  width: 100px;
+  padding: 10px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.add-to-cart-btn {
+  width: 100%;
+  padding: 15px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-to-cart-btn:hover:not(:disabled) {
+  background: #218838;
+}
+
+.add-to-cart-btn:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .product-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .product-header h1 {
+    font-size: 2rem;
+  }
+  
+  .info-grid,
+  .metafields-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style> 

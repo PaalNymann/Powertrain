@@ -1,0 +1,325 @@
+{% comment %}
+  Search Results Template for Shopify
+  Shows search results with clickable product cards that link to existing Shopify product pages
+{% endcomment %}
+
+<div class="search-results-container">
+  <div class="search-header">
+    <h1>🔍 Søkeresultater</h1>
+    {% if search.terms %}
+      <p>Søkte etter: <strong>"{{ search.terms }}"</strong></p>
+    {% endif %}
+    <p>Fant {{ search.results_count }} produkter</p>
+  </div>
+
+  {% if search.results_count > 0 %}
+    <div class="products-grid">
+      {% for product in search.results %}
+        <div class="product-card">
+          <a href="{{ product.url }}" class="product-link">
+            <div class="product-image">
+              {% if product.featured_image %}
+                <img src="{{ product.featured_image | img_url: 'medium' }}" alt="{{ product.title | escape }}">
+              {% else %}
+                <div class="no-image">Ingen bilde</div>
+              {% endif %}
+            </div>
+            
+            <div class="product-info">
+              <h3 class="product-title">{{ product.title }}</h3>
+              
+              <div class="product-price">
+                <span class="price">{{ product.price | money }}</span>
+                {% if product.compare_at_price > product.price %}
+                  <span class="compare-price">{{ product.compare_at_price | money }}</span>
+                {% endif %}
+              </div>
+              
+              <div class="product-details">
+                {% if product.variants.first.sku %}
+                  <p class="sku">SKU: {{ product.variants.first.sku }}</p>
+                {% endif %}
+                
+                <p class="stock">Lager: {{ product.variants.first.inventory_quantity | default: 0 }}</p>
+                
+                {% if product.metafields.custom.oem %}
+                  <p class="oem">OEM: {{ product.metafields.custom.oem }}</p>
+                {% endif %}
+                
+                {% if product.metafields.custom.number %}
+                  <p class="number">Art.nr: {{ product.metafields.custom.number }}</p>
+                {% endif %}
+                
+                {% if product.metafields.custom.brand %}
+                  <p class="brand">Merke: {{ product.metafields.custom.brand }}</p>
+                {% endif %}
+                
+                {% if product.metafields.custom.category %}
+                  <p class="category">Kategori: {{ product.metafields.custom.category }}</p>
+                {% endif %}
+              </div>
+              
+              <div class="view-product">
+                <span>Se produkt →</span>
+              </div>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="no-results">
+      <h2>Ingen produkter funnet</h2>
+      <p>Prøv å søke med andre ord eller se våre kategorier.</p>
+      <a href="/collections/all" class="browse-all-btn">Se alle produkter</a>
+    </div>
+  {% endif %}
+</div>
+
+<style>
+.search-results-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.search-header {
+  text-align: center;
+  margin-bottom: 40px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+}
+
+.search-header h1 {
+  margin: 0 0 10px 0;
+  color: #333;
+  font-size: 2rem;
+}
+
+.search-header p {
+  margin: 5px 0;
+  color: #666;
+}
+
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 25px;
+  margin-top: 30px;
+}
+
+.product-card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: white;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.product-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+}
+
+.product-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  height: 100%;
+}
+
+.product-image {
+  position: relative;
+  height: 200px;
+  overflow: hidden;
+  background: #f8f9fa;
+}
+
+.product-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+
+.product-card:hover .product-image img {
+  transform: scale(1.05);
+}
+
+.no-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.product-info {
+  padding: 20px;
+}
+
+.product-title {
+  font-size: 1.1rem;
+  margin: 0 0 10px 0;
+  color: #333;
+  font-weight: bold;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.product-price {
+  margin-bottom: 15px;
+}
+
+.price {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #28a745;
+}
+
+.compare-price {
+  color: #6c757d;
+  text-decoration: line-through;
+  margin-left: 8px;
+  font-size: 1rem;
+}
+
+.product-details {
+  margin-bottom: 15px;
+  font-size: 0.9rem;
+}
+
+.product-details p {
+  margin: 5px 0;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+}
+
+.product-details p::before {
+  font-weight: bold;
+  color: #333;
+}
+
+.sku {
+  font-family: monospace;
+  background: #f8f9fa;
+  padding: 3px 6px;
+  border-radius: 4px;
+  margin: 5px 0;
+}
+
+.oem {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+.number {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.brand {
+  color: #ffc107;
+  font-weight: bold;
+}
+
+.category {
+  color: #17a2b8;
+  font-weight: bold;
+}
+
+.view-product {
+  text-align: center;
+  padding: 12px;
+  background: #007bff;
+  color: white;
+  border-radius: 6px;
+  font-weight: bold;
+  margin-top: 10px;
+  transition: background-color 0.2s;
+}
+
+.product-card:hover .view-product {
+  background: #0056b3;
+}
+
+.no-results {
+  text-align: center;
+  padding: 60px 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  margin-top: 40px;
+}
+
+.no-results h2 {
+  color: #333;
+  margin-bottom: 15px;
+}
+
+.no-results p {
+  color: #666;
+  margin-bottom: 25px;
+}
+
+.browse-all-btn {
+  display: inline-block;
+  padding: 12px 24px;
+  background: #28a745;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.browse-all-btn:hover {
+  background: #218838;
+  color: white;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .search-results-container {
+    padding: 15px;
+  }
+  
+  .search-header h1 {
+    font-size: 1.5rem;
+  }
+  
+  .products-grid {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 15px;
+  }
+  
+  .product-info {
+    padding: 15px;
+  }
+  
+  .product-title {
+    font-size: 1rem;
+  }
+  
+  .price {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .products-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .product-image {
+    height: 180px;
+  }
+}
+</style> 
