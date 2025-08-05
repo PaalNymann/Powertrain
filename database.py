@@ -47,7 +47,6 @@ def search_products_by_oem(oem_number, include_number=False):
     """Search for products by OEM number in metafields"""
     session = SessionLocal()
     try:
-        # Build search query using LIKE for better SQLite compatibility
         from sqlalchemy import or_
         
         # Search in oem metafield
@@ -91,6 +90,9 @@ def search_products_by_oem(oem_number, include_number=False):
         
         return result
         
+    except Exception as e:
+        print(f"Error searching database: {e}")
+        return []
     finally:
         session.close()
 
