@@ -18,6 +18,7 @@ RACKBEAT_API_KEY = os.getenv('RACKBEAT_API_KEY')
 SHOPIFY_DOMAIN = os.getenv('SHOPIFY_DOMAIN')
 SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN')
 SHOPIFY_VERSION = os.getenv('SHOPIFY_VERSION', '2023-10')
+MECAPARTS_ENDPOINT = "https://bm0did-zc.myshopify.com/apps/mecaparts/api/vehicle_parts"
 
 def extract_vehicle_info(vehicle_data):
     """Extract only essential vehicle info: make, model, year"""
@@ -84,53 +85,55 @@ def extract_oem_numbers(description):
     
     return filtered_matches
 
+def get_oem_numbers_from_mecaparts(brand, model, year):
+    """Get OEM numbers from MecaParts via Shopify API - FUNGERENDE LØSNING"""
+    url = MECAPARTS_ENDPOINT
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "brand": brand,
+        "model": model,
+        "year": year
+    }
+    
+    print(f"🔍 Calling MecaParts API: {url}")
+    print(f"📋 Payload: {payload}")
+    
+    try:
+        resp = requests.post(url, headers=headers, json=payload)
+        print(f"📡 Response status: {resp.status_code}")
+        
+        if resp.status_code != 200:
+            print(f"❌ MecaParts API error: {resp.status_code}")
+            return {"error": "Mecaparts API error", "status_code": resp.status_code}
+        
+        response_data = resp.json()
+        print(f"📦 Response data: {response_data}")
+        
+        oem_numbers = response_data.get("oem_numbers", [])
+        print(f"📦 Found {len(oem_numbers)} OEM numbers from MecaParts")
+        return oem_numbers
+        
+    except Exception as e:
+        print(f"❌ Error calling MecaParts API: {e}")
+        return []
+
 def get_mecaparts_parts(make, model, year):
     """Get OEM numbers from MecaParts via Shopify API - FUNGERENDE LØSNING"""
     try:
         print(f"🔍 Getting MecaParts parts for: {make} {model} {year}")
         
-        # Search in our local database for products that match the vehicle
-        # This is the correct approach since we have all Shopify products cached locally
-        from database import search_products_by_oem
+        # Use the working MecaParts API call
+        oem_numbers = get_oem_numbers_from_mecaparts(make, model, year)
         
-        # Get all products from database and filter by vehicle info
-        from sqlalchemy import create_engine, text
-        from database import get_database_url
-        
-        engine = create_engine(get_database_url())
-        
-        # Search for products that might match this vehicle
-        # We'll look for products with tags or titles containing the make/model/year
-        query = text("""
-            SELECT oem_metafield, original_nummer_metafield, number_metafield, title, tags
-            FROM shopify_products 
-            WHERE (tags LIKE :make OR title LIKE :make OR tags LIKE :model OR title LIKE :model OR tags LIKE :year OR title LIKE :year)
-            AND (oem_metafield IS NOT NULL AND oem_metafield != 'N/A' OR original_nummer_metafield IS NOT NULL AND original_nummer_metafield != 'N/A' OR number_metafield IS NOT NULL AND number_metafield != 'N/A')
-        """)
-        
-        with engine.connect() as conn:
-            result = conn.execute(query, {
-                'make': f'%{make}%',
-                'model': f'%{model}%', 
-                'year': f'%{year}%'
-            })
-            
-            vehicle_parts = []
-            for row in result:
-                # Extract OEM numbers from all available fields
-                if row.oem_metafield and row.oem_metafield != 'N/A':
-                    vehicle_parts.append(row.oem_metafield)
-                if row.original_nummer_metafield and row.original_nummer_metafield != 'N/A':
-                    vehicle_parts.append(row.original_nummer_metafield)
-                if row.number_metafield and row.number_metafield != 'N/A':
-                    vehicle_parts.append(row.number_metafield)
-            
-            if vehicle_parts:
-                print(f"📦 Found {len(vehicle_parts)} OEM numbers for {make} {model} {year}")
-                return vehicle_parts
-            else:
-                print(f"⚠️ No parts found for {make} {model} {year}")
-                return []
+        if isinstance(oem_numbers, list):
+            print(f"📦 Found {len(oem_numbers)} OEM numbers for {make} {model} {year}")
+            return oem_numbers
+        else:
+            print(f"⚠️ Error from MecaParts: {oem_numbers}")
+            return []
             
     except Exception as e:
         print(f"❌ Error getting MecaParts parts: {e}")
@@ -148,8 +151,12 @@ def query_tecdoc_api(vehicle_info):
         # Use the working MecaParts function
         oem_numbers = get_mecaparts_parts(brand, model, year)
         
-        print(f"📦 Returning {len(oem_numbers)} OEM numbers from MecaParts")
-        return oem_numbers
+        if isinstance(oem_numbers, list):
+            print(f"📦 Found {len(oem_numbers)} OEM numbers for {brand} {model} {year}")
+            return oem_numbers
+        else:
+            print(f"⚠️ Error from MecaParts: {oem_numbers}")
+            return []
         
     except Exception as e:
         print(f"❌ Error querying MecaParts/TecDoc API: {e}")
