@@ -48,11 +48,8 @@ def get_maskinporten_token():
         
         # Request token
         token_data = {
-            'grant_type': 'client_credentials',
-            'client_id': client_id,
-            'scope': scope,
-            'client_assertion_type': 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-            'client_assertion': client_assertion
+            'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            'assertion': client_assertion
         }
         
         logger.info(f"Token request data: {token_data}")
