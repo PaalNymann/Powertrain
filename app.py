@@ -583,9 +583,13 @@ def cache_stats():
 
 
 if __name__ == '__main__':
-    # Initialize database
-    init_db()
-    print("Database initialized")
+    # Initialize database with error handling
+    try:
+        init_db()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Warning: Database initialization failed: {e}")
+        print("App will continue without database functionality")
     
     app.run(port=int(os.getenv('PORT', 8000)), host='0.0.0.0')
 
