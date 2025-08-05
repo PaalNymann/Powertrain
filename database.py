@@ -1,192 +1,199 @@
-import sqlite3
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, text
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-import re
+import json
 
 Base = declarative_base()
 
 class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
-    id = Column(String, primary_key=True)
-    title = Column(String)
-    handle = Column(String)
-    sku = Column(String)
-    price = Column(Float)
-    inventory_quantity = Column(Integer)
+    id = Column(Integer, primary_key=True)
+    product_id = Column(String(50), unique=True, nullable=False)
+    title = Column(String(500), nullable=False)
+    handle = Column(String(500), nullable=False)
+    vendor = Column(String(200))
+    product_type = Column(String(200))
+    tags = Column(Text)
+    oem_metafield = Column(Text)
+    original_nummer_metafield = Column(Text)
+    number_metafield = Column(Text)
+    inventory_quantity = Column(Integer, default=0)
+    price = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class ProductMetafield(Base):
-    __tablename__ = 'product_metafields'
-    
-    id = Column(String, primary_key=True)
-    product_id = Column(String)
-    namespace = Column(String)
-    key = Column(String)
-    value = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    
-
 def get_database_url():
-    """Get database URL from environment or use SQLite"""
+    """Get database URL from environment or use SQLite for local development"""
     database_url = os.getenv('DATABASE_URL')
-    if database_url:
-        # Convert Railway PostgreSQL URL to SQLAlchemy format
-        if database_url.startswith('postgres://'):
-            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    if database_url and database_url.startswith('postgresql://'):
+        return database_url
+    elif database_url and database_url.startswith('sqlite://'):
         return database_url
     else:
-        # Use SQLite for local development
         return 'sqlite:///powertrain.db'
 
+engine = create_engine(get_database_url())
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 def init_db():
-    """Initialize database and create tables"""
-    engine = create_engine(get_database_url())
-    Base.metadata.create_all(engine)
+    """Initialize database tables"""
+    Base.metadata.create_all(bind=engine)
     print("Database initialized")
 
-def get_db_session():
-    """Get database session"""
-    engine = create_engine(get_database_url())
-    Session = sessionmaker(bind=engine)
-    return Session()
-
 def search_products_by_oem(oem_number, include_number=False):
-    """Search products by OEM number in metafields"""
-    if not oem_number:
-        return []
-    
-    db = get_db_session()
+    """Search for products by OEM number in metafields"""
+    session = SessionLocal()
     try:
-        # Clean OEM number
-        clean_oem = oem_number.upper().strip()
+        # Build search query using LIKE for better SQLite compatibility
+        from sqlalchemy import or_
         
-        # Build query based on include_number parameter
-        query = db.query(ProductMetafield).filter(
-            ProductMetafield.namespace == 'custom',
-            ProductMetafield.value.ilike(f"%{clean_oem}%")
-        )
+        # Search in oem metafield
+        oem_condition = ShopifyProduct.oem_metafield.like(f'%{oem_number}%')
         
-        # Exclude 'number' field only for license plate search (not free text)
-        # But include 'original_nummer' field which contains OEM numbers
-        if not include_number:
-            query = query.filter(ProductMetafield.key != 'number')
+        # Search in original_nummer metafield
+        original_condition = ShopifyProduct.original_nummer_metafield.like(f'%{oem_number}%')
         
-        results = query.all()
+        # Search in number metafield (only if include_number is True)
+        if include_number:
+            number_condition = ShopifyProduct.number_metafield.like(f'%{oem_number}%')
+            query = session.query(ShopifyProduct).filter(
+                or_(oem_condition, original_condition, number_condition)
+            )
+        else:
+            query = session.query(ShopifyProduct).filter(
+                or_(oem_condition, original_condition)
+            )
         
-        products = []
-        for metafield in results:
-            # Get product details
-            product = db.query(ShopifyProduct).filter(
-                ShopifyProduct.id == metafield.product_id
-            ).first()
-            
-            if product:
-                products.append({
-                    'id': product.id,
-                    'title': product.title,
-                    'handle': product.handle,
-                    'sku': product.sku,
-                    'price': product.price,
-                    'inventory_quantity': product.inventory_quantity,
-                    'matching_part_number': clean_oem,
-                    'metafield_key': metafield.key,
-                    'metafield_value': metafield.value
-                })
+        products = query.all()
         
-        return products
-    except Exception as e:
-        print(f"Error in search_products_by_oem: {e}")
-        return []
+        # Convert to dictionary format
+        result = []
+        for product in products:
+            product_dict = {
+                'id': product.product_id,
+                'title': product.title,
+                'handle': product.handle,
+                'vendor': product.vendor,
+                'product_type': product.product_type,
+                'tags': product.tags,
+                'oem_metafield': product.oem_metafield,
+                'original_nummer_metafield': product.original_nummer_metafield,
+                'number_metafield': product.number_metafield,
+                'inventory_quantity': product.inventory_quantity,
+                'price': product.price,
+                'created_at': product.created_at.isoformat() if product.created_at else None,
+                'updated_at': product.updated_at.isoformat() if product.updated_at else None
+            }
+            result.append(product_dict)
+        
+        return result
+        
     finally:
-        db.close()
-
-
+        session.close()
 
 def update_shopify_cache(products_data):
-    """Update Shopify product cache"""
-    db = get_db_session()
+    """Update Shopify product cache in database"""
+    session = SessionLocal()
     try:
-        # Clear existing data and commit immediately
-        print(f"🗑️  Clearing existing data...")
-        db.execute(text("DELETE FROM product_metafields"))
-        db.execute(text("DELETE FROM shopify_products"))
-        db.commit()
-        print(f"✅ Existing data cleared")
-        
-        total_products = 0
-        total_metafields = 0
-        
-        print(f"📦 Processing {len(products_data)} products...")
-        
-        for i, product_data in enumerate(products_data):
-            try:
-                # Create product
-                product = ShopifyProduct(
-                    id=product_data['id'],
-                    title=product_data['title'],
-                    handle=product_data['handle'],
-                    sku=product_data.get('sku', ''),
-                    price=float(product_data.get('variants', [{}])[0].get('price', 0)),
-                    inventory_quantity=int(product_data.get('variants', [{}])[0].get('inventory_quantity', 0))
-                )
-                db.add(product)
-                total_products += 1
+        for product_data in products_data:
+            # Check if product exists
+            existing_product = session.query(ShopifyProduct).filter(
+                ShopifyProduct.product_id == str(product_data['id'])
+            ).first()
+            
+            if existing_product:
+                # Update existing product
+                existing_product.title = product_data.get('title', '')
+                existing_product.handle = product_data.get('handle', '')
+                existing_product.vendor = product_data.get('vendor', '')
+                existing_product.product_type = product_data.get('product_type', '')
+                existing_product.tags = product_data.get('tags', '')
+                existing_product.price = product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else ''
+                existing_product.updated_at = datetime.utcnow()
                 
-                # Process metafields
-                for metafield_data in product_data.get('metafields', []):
-                    metafield = ProductMetafield(
-                        id=metafield_data['id'],
-                        product_id=product_data['id'],
-                        namespace=metafield_data['namespace'],
-                        key=metafield_data['key'],
-                        value=metafield_data['value']
+                # Update metafields if available
+                if 'metafields' in product_data:
+                    for metafield in product_data['metafields']:
+                        key = metafield.get('key', '')
+                        value = metafield.get('value', '')
+                        
+                        if key == 'oem':
+                            existing_product.oem_metafield = value
+                        elif key == 'original_nummer':
+                            existing_product.original_nummer_metafield = value
+                        elif key == 'number':
+                            existing_product.number_metafield = value
+                
+                # Update inventory
+                if 'variants' in product_data and product_data['variants']:
+                    total_inventory = sum(
+                        int(variant.get('inventory_quantity', 0)) 
+                        for variant in product_data['variants']
                     )
-                    db.add(metafield)
-                    total_metafields += 1
-                
-                # Progress indicator
-                if (i + 1) % 50 == 0:
-                    print(f"   📋 Processed {i + 1}/{len(products_data)} products")
+                    existing_product.inventory_quantity = total_inventory
                     
-            except Exception as e:
-                print(f"⚠️  Error processing product {product_data.get('id', 'unknown')}: {e}")
-                continue
+            else:
+                # Create new product
+                new_product = ShopifyProduct(
+                    product_id=str(product_data['id']),
+                    title=product_data.get('title', ''),
+                    handle=product_data.get('handle', ''),
+                    vendor=product_data.get('vendor', ''),
+                    product_type=product_data.get('product_type', ''),
+                    tags=product_data.get('tags', ''),
+                    price=product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else '',
+                    inventory_quantity=0
+                )
                 
-
+                # Set metafields if available
+                if 'metafields' in product_data:
+                    for metafield in product_data['metafields']:
+                        key = metafield.get('key', '')
+                        value = metafield.get('value', '')
+                        
+                        if key == 'oem':
+                            new_product.oem_metafield = value
+                        elif key == 'original_nummer':
+                            new_product.original_nummer_metafield = value
+                        elif key == 'number':
+                            new_product.number_metafield = value
+                
+                # Set inventory
+                if 'variants' in product_data and product_data['variants']:
+                    total_inventory = sum(
+                        int(variant.get('inventory_quantity', 0)) 
+                        for variant in product_data['variants']
+                    )
+                    new_product.inventory_quantity = total_inventory
+                
+                session.add(new_product)
         
-        db.commit()
-        return {
-            'products': total_products,
-            'metafields': total_metafields
-        }
+        session.commit()
+        print(f"Updated cache with {len(products_data)} products")
+        
     except Exception as e:
-        db.rollback()
+        session.rollback()
         print(f"Error updating cache: {e}")
         raise
     finally:
-        db.close()
+        session.close()
 
 def get_cache_stats():
     """Get cache statistics"""
-    db = get_db_session()
+    session = SessionLocal()
     try:
-        product_count = db.query(ShopifyProduct).count()
-        metafield_count = db.query(ProductMetafield).count()
+        total_products = session.query(ShopifyProduct).count()
+        in_stock_products = session.query(ShopifyProduct).filter(
+            ShopifyProduct.inventory_quantity > 0
+        ).count()
         
         return {
-            'products': product_count,
-            'metafields': metafield_count
+            'total_products': total_products,
+            'in_stock_products': in_stock_products,
+            'cache_updated': datetime.utcnow().isoformat()
         }
-    except Exception as e:
-        print(f"Error getting cache stats: {e}")
-        return {'products': 0, 'metafields': 0}
     finally:
-        db.close()
-
- 
+        session.close() 
