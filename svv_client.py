@@ -29,7 +29,7 @@ def get_maskinporten_token():
     try:
         # Load private key
         with open('private_key.pem', 'rb') as f:
-            private_key = serialization.load_pem_private_key(f.read(), password=None)
+            private_key_data = f.read()
         
         # JWT payload
         payload = {
@@ -42,7 +42,7 @@ def get_maskinporten_token():
         }
         
         # Generate JWT
-        client_assertion = jwt.encode(payload, private_key, algorithm='RS256')
+        client_assertion = jwt.encode(payload, private_key_data, algorithm='RS256')
         
         # Request token
         token_data = {
