@@ -244,11 +244,18 @@ def car_parts_search():
         
         # Step 1: Get vehicle data from Statens Vegvesen
         print(f"📡 Step 1: Getting vehicle data from SVV for {regnr}")
-        vehicle_data = hent_kjoretoydata(regnr)
-        vehicle_info = extract_vehicle_info(vehicle_data)
-        
-        if not vehicle_info:
-            return jsonify({"error": "Could not extract vehicle information"}), 400
+        try:
+            vehicle_data = hent_kjoretoydata(regnr)
+            vehicle_info = extract_vehicle_info(vehicle_data)
+            
+            if not vehicle_info:
+                return jsonify({"error": "Could not extract vehicle information"}), 400
+        except Exception as svv_error:
+            print(f"❌ SVV/Maskinporten error: {svv_error}")
+            return jsonify({
+                "error": "Kunne ikke koble til serveren. Prøv igjen senere.",
+                "details": str(svv_error)
+            }), 500
         
         print(f"✅ Vehicle info extracted: {vehicle_info}")
         
