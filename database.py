@@ -11,7 +11,6 @@ class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
     id = Column(Integer, primary_key=True)
-    product_id = Column(String(50), unique=True, nullable=False)
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
     vendor = Column(String(200))
@@ -33,6 +32,7 @@ def get_database_url():
     elif database_url and database_url.startswith('sqlite://'):
         return database_url
     else:
+        # Always use SQLite locally
         return 'sqlite:///powertrain.db'
 
 engine = create_engine(get_database_url())
@@ -40,8 +40,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """Initialize database tables"""
-    Base.metadata.create_all(bind=engine)
-    print("Database initialized")
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Database initialized")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        raise
 
 def search_products_by_oem(oem_number, include_number=False):
     """Search for products by OEM number in metafields"""
@@ -72,7 +76,7 @@ def search_products_by_oem(oem_number, include_number=False):
         result = []
         for product in products:
             product_dict = {
-                'id': product.product_id,
+                'id': str(product.id),  # Use id instead of product_id
                 'title': product.title,
                 'handle': product.handle,
                 'vendor': product.vendor,
@@ -101,9 +105,9 @@ def update_shopify_cache(products_data):
     session = SessionLocal()
     try:
         for product_data in products_data:
-            # Check if product exists
+            # Check if product exists - use id instead of product_id for compatibility
             existing_product = session.query(ShopifyProduct).filter(
-                ShopifyProduct.product_id == str(product_data['id'])
+                ShopifyProduct.id == int(product_data['id'])
             ).first()
             
             if existing_product:
@@ -138,9 +142,8 @@ def update_shopify_cache(products_data):
                     existing_product.inventory_quantity = total_inventory
                     
             else:
-                # Create new product
+                # Create new product - don't set product_id, let SQLAlchemy handle it
                 new_product = ShopifyProduct(
-                    product_id=str(product_data['id']),
                     title=product_data.get('title', ''),
                     handle=product_data.get('handle', ''),
                     vendor=product_data.get('vendor', ''),
@@ -188,9 +191,8 @@ def get_cache_stats():
     session = SessionLocal()
     try:
         total_products = session.query(ShopifyProduct).count()
-        in_stock_products = session.query(ShopifyProduct).filter(
-            ShopifyProduct.inventory_quantity > 0
-        ).count()
+        # All Shopify products are considered in stock from Rackbeat's perspective
+        in_stock_products = total_products
         
         return {
             'total_products': total_products,
