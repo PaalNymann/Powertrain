@@ -41,8 +41,11 @@ def get_maskinporten_token():
             'jti': str(int(time.time()))
         }
         
-        # Generate JWT
-        client_assertion = jwt.encode(payload, private_key_data, algorithm='RS256')
+        # Generate JWT with kid header
+        headers = {
+            'kid': client_id  # Use client_id as key identifier
+        }
+        client_assertion = jwt.encode(payload, private_key_data, algorithm='RS256', headers=headers)
         logger.info(f"Generated JWT with payload: {payload}")
         logger.info(f"JWT length: {len(client_assertion)}")
         
