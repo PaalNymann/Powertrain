@@ -43,6 +43,8 @@ def get_maskinporten_token():
         
         # Generate JWT
         client_assertion = jwt.encode(payload, private_key_data, algorithm='RS256')
+        logger.info(f"Generated JWT with payload: {payload}")
+        logger.info(f"JWT length: {len(client_assertion)}")
         
         # Request token
         token_data = {
@@ -53,11 +55,17 @@ def get_maskinporten_token():
             'client_assertion': client_assertion
         }
         
+        logger.info(f"Token request data: {token_data}")
+        
         response = requests.post(
             token_endpoint,
             data=token_data,
             headers={'Content-Type': 'application/x-www-form-urlencoded'}
         )
+        
+        if response.status_code != 200:
+            logger.error(f"Maskinporten response: {response.status_code} - {response.text}")
+        
         response.raise_for_status()
         
         token_response = response.json()
