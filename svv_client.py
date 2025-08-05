@@ -3,7 +3,7 @@ import json
 import logging
 import requests
 import time
-import jwt
+import PyJWT as jwt
 from cryptography.hazmat.primitives import serialization
 from typing import Dict
 from dotenv import load_dotenv
