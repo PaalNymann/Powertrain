@@ -16,8 +16,10 @@ class ShopifyProduct(Base):
     vendor = Column(String(200))
     product_type = Column(String(200))
     tags = Column(Text)
-    oem_metafield = Column(Text)
+    # Riktige metafields for matching mot MecaParts numre
     original_nummer_metafield = Column(Text)
+    oem_metafield = Column(Text)
+    # Number field kun for fritekst-søk
     number_metafield = Column(Text)
     inventory_quantity = Column(Integer, default=0)
     price = Column(String(50))
@@ -53,21 +55,19 @@ def search_products_by_oem(oem_number, include_number=False):
     try:
         from sqlalchemy import or_
         
-        # Search in oem metafield
+        # Search in all the correct metafields for license plate search
+        original_condition = ShopifyProduct.original_nummer_metafield.like(f'%{oem_number}%')
         oem_condition = ShopifyProduct.oem_metafield.like(f'%{oem_number}%')
         
-        # Search in original_nummer metafield
-        original_condition = ShopifyProduct.original_nummer_metafield.like(f'%{oem_number}%')
-        
-        # Search in number metafield (only if include_number is True)
+        # Search in number metafield (only if include_number is True for free-text search)
         if include_number:
             number_condition = ShopifyProduct.number_metafield.like(f'%{oem_number}%')
             query = session.query(ShopifyProduct).filter(
-                or_(oem_condition, original_condition, number_condition)
+                or_(original_condition, oem_condition, number_condition)
             )
         else:
             query = session.query(ShopifyProduct).filter(
-                or_(oem_condition, original_condition)
+                or_(original_condition, oem_condition)
             )
         
         products = query.all()
@@ -82,9 +82,9 @@ def search_products_by_oem(oem_number, include_number=False):
                 'vendor': product.vendor,
                 'product_type': product.product_type,
                 'tags': product.tags,
+                'original_nummer': product.original_nummer_metafield,
                 'oem_metafield': product.oem_metafield,
-                'original_nummer_metafield': product.original_nummer_metafield,
-                'number_metafield': product.number_metafield,
+                'number': product.number_metafield,
                 'inventory_quantity': product.inventory_quantity,
                 'price': product.price,
                 'created_at': product.created_at.isoformat() if product.created_at else None,
@@ -126,10 +126,10 @@ def update_shopify_cache(products_data):
                         key = metafield.get('key', '')
                         value = metafield.get('value', '')
                         
-                        if key == 'oem':
-                            existing_product.oem_metafield = value
-                        elif key == 'original_nummer':
+                        if key == 'original_nummer':
                             existing_product.original_nummer_metafield = value
+                        elif key == 'oem_metafield':
+                            existing_product.oem_metafield = value
                         elif key == 'number':
                             existing_product.number_metafield = value
                 
@@ -159,10 +159,10 @@ def update_shopify_cache(products_data):
                         key = metafield.get('key', '')
                         value = metafield.get('value', '')
                         
-                        if key == 'oem':
-                            new_product.oem_metafield = value
-                        elif key == 'original_nummer':
+                        if key == 'original_nummer':
                             new_product.original_nummer_metafield = value
+                        elif key == 'oem_metafield':
+                            new_product.oem_metafield = value
                         elif key == 'number':
                             new_product.number_metafield = value
                 
