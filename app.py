@@ -17,7 +17,7 @@ SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN')
 # Support both old and new version variable names
 SHOPIFY_VERSION = os.getenv('SHOPIFY_VERSION') or os.getenv('SHOPIFY_API_VERSION', '2023-10')
 # TecDoc API via Apify
-TECDOC_API_KEY = "apify_api_9icuCYhwRofs27Sr5hgb2vQ9T2cFGV0xGHK0"
+TECDOC_API_KEY = os.getenv('TECDOC_API_KEY')
 TECDOC_BASE_URL = "https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/runs"
 
 # Add validation for required environment variables
@@ -25,7 +25,8 @@ def validate_environment():
     """Validate that all required environment variables are set"""
     required_vars = {
         'SHOPIFY_DOMAIN': SHOPIFY_DOMAIN,
-        'SHOPIFY_TOKEN': SHOPIFY_TOKEN
+        'SHOPIFY_TOKEN': SHOPIFY_TOKEN,
+        'TECDOC_API_KEY': TECDOC_API_KEY
     }
     
     missing_vars = [var for var, value in required_vars.items() if not value]
