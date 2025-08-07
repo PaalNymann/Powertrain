@@ -114,7 +114,7 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         # This is a placeholder - you'd implement the full TecDoc API flow here
         
         # Call TecDoc API via Apify to get real OEM numbers
-        # For VW Tiguan 2009, we have a dataset with 119 articles
+        # For now, we only have data for VW Tiguan 2009 from our test
         if brand.upper() == 'VOLKSWAGEN' and model.upper() == 'TIGUAN' and str(year) == '2009':
             # Use the dataset we just tested
             dataset_url = "https://api.apify.com/v2/datasets/G7jrXL7E99KRJefhq/items"
@@ -135,31 +135,9 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
                 print(f"❌ TecDoc API error: {response.status_code}")
                 return []
         else:
-            # For other vehicles, use sample data for now
-            sample_oem_numbers = {
-                'VOLVO': {
-                    'V70': {
-                        '2006': ['30735120', '30735349', '30783083', '30783085', '36000520', '36000526', '8252034', '8252035', '8252043', '8601855', '8601859', '8602577', '8602591', '8602842', '86028420', '8603794', '8603795', '8689213', '8689227', '8689872', '9181255', '9181261']
-                    }
-                },
-                'BMW': ['B123456789', 'B987654321', 'B555666777']
-            }
-            
-            # Check for specific vehicle match
-            if brand.upper() in sample_oem_numbers:
-                if model.upper() in sample_oem_numbers[brand.upper()]:
-                    if str(year) in sample_oem_numbers[brand.upper()][model.upper()]:
-                        oem_numbers = sample_oem_numbers[brand.upper()][model.upper()][str(year)]
-                        print(f"📦 Found {len(oem_numbers)} specific OEM numbers for {brand} {model} {year}")
-                        return oem_numbers
-            
-            # Fallback to generic brand data
-            if brand.upper() in sample_oem_numbers and isinstance(sample_oem_numbers[brand.upper()], list):
-                oem_numbers = sample_oem_numbers[brand.upper()]
-                print(f"📦 Found {len(oem_numbers)} sample OEM numbers for {brand} {model} {year}")
-                return oem_numbers
-            
-            print(f"📦 No OEM numbers found for {brand} {model} {year}")
+            # For other vehicles, we need to call TecDoc API to get real data
+            # This would require implementing the full TecDoc API flow
+            print(f"📦 No TecDoc data available for {brand} {model} {year} - need to implement full API flow")
             return []
         
     except Exception as e:
