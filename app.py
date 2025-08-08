@@ -135,6 +135,12 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
             else:
                 print(f"❌ TecDoc API error: {response.status_code}")
                 return []
+        
+        # For Volvo V70 2006, we need to create a new TecDoc task
+        elif brand.upper() == 'VOLVO' and model.upper() == 'V70' and str(year) == '2006':
+            print(f"📦 Need to create new TecDoc task for {brand} {model} {year}")
+            print(f"📦 This requires implementing full TecDoc API flow with manufacturer/model/vehicle IDs")
+            return []
         else:
             # For other vehicles, we need to call TecDoc API to get real data
             # This would require implementing the full TecDoc API flow
