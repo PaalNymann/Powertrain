@@ -106,40 +106,14 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         
         print(f"🔍 Found manufacturer ID: {manufacturer_id} for {brand}")
         
-        # Step 2: Get models for manufacturer
-        print(f"🔍 Step 2: Getting models for manufacturer {manufacturer_id}")
-        models_url = f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/runs"
+        # Step 2: Check existing datasets for this vehicle
+        print(f"🔍 Step 2: Checking existing datasets for {brand} {model} {year}")
         
-        # Create a task to get models
-        models_payload = {
-            "selectPageType": "get-models-list",
-            "langId": "4",  # Norwegian
-            "countryId": "62",  # Norway
-            "manufacturerId": manufacturer_id
-        }
+        # For now, we only have access to existing datasets
+        # In the future, we could implement the full API flow with a paid plan
         
-        models_response = requests.post(
-            f"{models_url}?token={TECDOC_API_KEY}",
-            json=models_payload,
-            timeout=60
-        )
-        
-        if models_response.status_code != 200:
-            print(f"❌ Failed to get models: {models_response.status_code}")
-            return []
-        
-        models_data = models_response.json()
-        print(f"📦 Models response: {models_data}")
-        
-        # Step 3: Find specific model
-        # This would require parsing the models response to find the correct model ID
-        # For now, let's use a simplified approach
-        
-        # Step 4: Get articles for the vehicle
-        print(f"🔍 Step 4: Getting articles for {brand} {model} {year}")
-        
-        # For now, let's use existing datasets if available
         if brand.upper() == 'VOLKSWAGEN' and model.upper() == 'TIGUAN' and str(year) == '2009':
+            print(f"📦 Found existing dataset for VW Tiguan 2009")
             dataset_url = "https://api.apify.com/v2/datasets/G7jrXL7E99KRJefhq/items"
             response = requests.get(f"{dataset_url}?token={TECDOC_API_KEY}", timeout=30)
             
@@ -150,11 +124,38 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
                     oem_numbers = [article['articleNo'] for article in articles if article.get('articleNo')]
                     print(f"📦 Found {len(oem_numbers)} OEM numbers from TecDoc API for {brand} {model} {year}")
                     return oem_numbers
+                else:
+                    print(f"❌ No articles found in TecDoc response")
+                    return []
+            else:
+                print(f"❌ TecDoc API error: {response.status_code}")
+                return []
         
-        # For other vehicles, we need to implement the full flow
-        print(f"📦 Full TecDoc API flow not yet implemented for {brand} {model} {year}")
-        print(f"📦 Need to: 1) Get models, 2) Find model ID, 3) Get vehicles, 4) Find vehicle ID, 5) Get articles")
-        return []
+        elif brand.upper() == 'VOLVO' and model.upper() == 'V70' and str(year) == '2006':
+            print(f"📦 Need TecDoc data for Volvo V70 2006")
+            print(f"📦 Manufacturer ID: 185")
+            print(f"📦 Need to either:")
+            print(f"   1) Find existing dataset with this vehicle")
+            print(f"   2) Run new TecDoc task (requires paid plan)")
+            print(f"   3) Use alternative data source")
+            return []
+        
+        elif brand.upper() == 'BMW' and model.upper() == 'X5 XDRIVE30D' and str(year) == '2014':
+            print(f"📦 Need TecDoc data for BMW X5 XDRIVE30D 2014")
+            print(f"📦 Manufacturer ID: 183")
+            print(f"📦 Need to either:")
+            print(f"   1) Find existing dataset with this vehicle")
+            print(f"   2) Run new TecDoc task (requires paid plan)")
+            print(f"   3) Use alternative data source")
+            return []
+        
+        else:
+            print(f"📦 No TecDoc data available for {brand} {model} {year}")
+            print(f"📦 Current limitations:")
+            print(f"   - Only have access to VW Tiguan 2009 dataset")
+            print(f"   - Running new tasks requires paid Apify plan")
+            print(f"   - Need to find existing datasets or alternative sources")
+            return []
         
     except Exception as e:
         print(f"❌ Error calling TecDoc API: {e}")
