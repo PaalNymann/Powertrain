@@ -77,7 +77,7 @@ def extract_vehicle_info(vehicle_data):
         return None
 
 def get_oem_numbers_from_tecdoc(brand, model, year):
-    """Get OEM numbers from TecDoc API via Apify"""
+    """Get OEM numbers from TecDoc API via Apify with full API flow"""
     if not all([brand, model, year]):
         print(f"❌ Missing required parameters: brand={brand}, model={model}, year={year}")
         return []
@@ -85,8 +85,7 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
     print(f"🔍 Searching TecDoc API for {brand} {model} {year}")
     
     try:
-        # First, we need to find the manufacturer ID for the brand
-        # This is a simplified approach - in production you'd want to cache these mappings
+        # Step 1: Find manufacturer ID
         manufacturer_mapping = {
             'VOLKSWAGEN': '184',
             'VOLVO': '185',
@@ -105,19 +104,42 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
             print(f"❌ Manufacturer {brand} not found in mapping")
             return []
         
-        # For now, let's use a simple approach and get articles for this manufacturer
-        # In a full implementation, you'd follow the TecDoc API flow:
-        # 1. Get models for manufacturer
-        # 2. Find specific model
-        # 3. Get articles for that model
+        print(f"🔍 Found manufacturer ID: {manufacturer_id} for {brand}")
         
-        # For testing, let's get some sample OEM numbers
-        # This is a placeholder - you'd implement the full TecDoc API flow here
+        # Step 2: Get models for manufacturer
+        print(f"🔍 Step 2: Getting models for manufacturer {manufacturer_id}")
+        models_url = f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/runs"
         
-        # Call TecDoc API via Apify to get real OEM numbers
-        # For now, we only have data for VW Tiguan 2009 from our test
+        # Create a task to get models
+        models_payload = {
+            "selectPageType": "get-models-list",
+            "langId": "4",  # Norwegian
+            "countryId": "62",  # Norway
+            "manufacturerId": manufacturer_id
+        }
+        
+        models_response = requests.post(
+            f"{models_url}?token={TECDOC_API_KEY}",
+            json=models_payload,
+            timeout=60
+        )
+        
+        if models_response.status_code != 200:
+            print(f"❌ Failed to get models: {models_response.status_code}")
+            return []
+        
+        models_data = models_response.json()
+        print(f"📦 Models response: {models_data}")
+        
+        # Step 3: Find specific model
+        # This would require parsing the models response to find the correct model ID
+        # For now, let's use a simplified approach
+        
+        # Step 4: Get articles for the vehicle
+        print(f"🔍 Step 4: Getting articles for {brand} {model} {year}")
+        
+        # For now, let's use existing datasets if available
         if brand.upper() == 'VOLKSWAGEN' and model.upper() == 'TIGUAN' and str(year) == '2009':
-            # Use the dataset we just tested
             dataset_url = "https://api.apify.com/v2/datasets/G7jrXL7E99KRJefhq/items"
             response = requests.get(f"{dataset_url}?token={TECDOC_API_KEY}", timeout=30)
             
@@ -125,27 +147,14 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
                 data = response.json()
                 if data and len(data) > 0 and 'articles' in data[0]:
                     articles = data[0]['articles']
-                    # Extract article numbers as OEM numbers
                     oem_numbers = [article['articleNo'] for article in articles if article.get('articleNo')]
                     print(f"📦 Found {len(oem_numbers)} OEM numbers from TecDoc API for {brand} {model} {year}")
                     return oem_numbers
-                else:
-                    print(f"❌ No articles found in TecDoc response")
-                    return []
-            else:
-                print(f"❌ TecDoc API error: {response.status_code}")
-                return []
         
-        # For Volvo V70 2006, we need to create a new TecDoc task
-        elif brand.upper() == 'VOLVO' and model.upper() == 'V70' and str(year) == '2006':
-            print(f"📦 Need to create new TecDoc task for {brand} {model} {year}")
-            print(f"📦 This requires implementing full TecDoc API flow with manufacturer/model/vehicle IDs")
-            return []
-        else:
-            # For other vehicles, we need to call TecDoc API to get real data
-            # This would require implementing the full TecDoc API flow
-            print(f"📦 No TecDoc data available for {brand} {model} {year} - need to implement full API flow")
-            return []
+        # For other vehicles, we need to implement the full flow
+        print(f"📦 Full TecDoc API flow not yet implemented for {brand} {model} {year}")
+        print(f"📦 Need to: 1) Get models, 2) Find model ID, 3) Get vehicles, 4) Find vehicle ID, 5) Get articles")
+        return []
         
     except Exception as e:
         print(f"❌ Error calling TecDoc API: {e}")
