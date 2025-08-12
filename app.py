@@ -93,101 +93,121 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         # Use synchronous TecDoc API call via Apify
         url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         
-        # Try multiple approaches to find the right API call
-        search_attempts = [
-            # Attempt 1: Basic article search
-            {
-                "selectPageType": "get-article-list",
-                "langId": 4,
-                "countryId": 1,
-                "vehicleTypeId": 1,
-                "year": str(year)
-            },
-            # Attempt 2: Search with brand and model as text
-            {
-                "selectPageType": "search-articles",
-                "langId": 4,
-                "countryId": 1,
-                "vehicleTypeId": 1,
-                "year": str(year),
-                "searchTerm": f"{brand} {model}"
-            },
-            # Attempt 3: Vehicle-specific search
-            {
-                "selectPageType": "get-vehicle-articles",
-                "langId": 4,
-                "countryId": 1,
-                "vehicleTypeId": 1,
-                "year": str(year),
-                "brand": brand,
-                "model": model
-            },
-            # Attempt 4: Generic parts search
-            {
-                "selectPageType": "get-parts",
-                "langId": 4,
-                "countryId": 1,
-                "vehicleTypeId": 1,
-                "year": str(year)
-            }
-        ]
+        # Step 1: Get manufacturers for passenger cars
+        print(f"📡 Step 1: Getting manufacturers for passenger cars...")
+        manufacturer_params = {
+            "selectPageType": "get-manufacturers-by-type-id-lang-id-country-id",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1
+        }
         
-        for i, search_params in enumerate(search_attempts, 1):
-            print(f"📡 Attempt {i}: Calling TecDoc API with params: {search_params}")
-            
-            try:
-                response = requests.post(url, json=search_params, timeout=60)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    print(f"📦 Raw TecDoc response (attempt {i}): {data}")
-                    
-                    # Extract OEM numbers from response
-                    oem_numbers = []
-                    
-                    # Handle different response formats
-                    if isinstance(data, list):
-                        # If response is a list, look for articles in each item
-                        for item in data:
-                            if isinstance(item, dict) and 'articles' in item:
-                                for article in item['articles']:
-                                    if article.get('articleNo'):
-                                        oem_numbers.append(article['articleNo'])
-                    elif isinstance(data, dict):
-                        # If response is a dict, look for articles
-                        if 'articles' in data:
-                            for article in data['articles']:
-                                if article.get('articleNo'):
-                                    oem_numbers.append(article['articleNo'])
-                        # Also check for other possible fields
-                        elif 'parts' in data:
-                            for part in data['parts']:
-                                if part.get('oem_number'):
-                                    oem_numbers.append(part['oem_number'])
-                        elif 'items' in data:
-                            for item in data['items']:
-                                if item.get('oem') or item.get('partNumber'):
-                                    oem_numbers.append(item.get('oem') or item.get('partNumber'))
-                    
-                    if oem_numbers:
-                        print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from TecDoc API (attempt {i})")
-                        return oem_numbers
-                    else:
-                        print(f"⚠️ Attempt {i} succeeded but returned no OEM numbers")
-                        
-                elif response.status_code == 201:
-                    print(f"⚠️ Attempt {i}: API accepted but returned empty response (201)")
-                else:
-                    print(f"❌ Attempt {i} failed: {response.status_code}")
-                    print(f"Response: {response.text}")
-                    
-            except Exception as e:
-                print(f"❌ Attempt {i} error: {e}")
-                continue
+        response = requests.post(url, json=manufacturer_params, timeout=30)
+        if response.status_code != 200:
+            print(f"❌ Failed to get manufacturers: {response.status_code}")
+            return []
         
-        # If all attempts failed
-        print(f"❌ All {len(search_attempts)} TecDoc API attempts failed")
-        return []
+        manufacturers_data = response.json()
+        print(f"📦 Found {len(manufacturers_data)} manufacturers")
+        
+        # Find matching manufacturer
+        manufacturer_id = None
+        for manufacturer in manufacturers_data:
+            if manufacturer.get('name', '').upper() == brand.upper():
+                manufacturer_id = manufacturer.get('id')
+                print(f"✅ Found manufacturer {brand} with ID: {manufacturer_id}")
+                break
+        
+        if not manufacturer_id:
+            print(f"❌ Manufacturer {brand} not found")
+            return []
+        
+        # Step 2: Get models for this manufacturer
+        print(f"📡 Step 2: Getting models for manufacturer {manufacturer_id}...")
+        model_params = {
+            "selectPageType": "get-models",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1,
+            "manufacturerId": manufacturer_id
+        }
+        
+        response = requests.post(url, json=model_params, timeout=30)
+        if response.status_code != 200:
+            print(f"❌ Failed to get models: {response.status_code}")
+            return []
+        
+        models_data = response.json()
+        print(f"📦 Found {len(models_data)} models for {brand}")
+        
+        # Find matching model
+        model_id = None
+        for model_item in models_data:
+            if model_item.get('name', '').upper() == model.upper():
+                model_id = model_item.get('id')
+                print(f"✅ Found model {model} with ID: {model_id}")
+                break
+        
+        if not model_id:
+            print(f"⚠️ Model {model} not found for manufacturer {brand}")
+            return []
+        
+        # Step 3: Get articles for this specific vehicle
+        print(f"📡 Step 3: Getting articles for {brand} {model} {year}...")
+        article_params = {
+            "selectPageType": "get-article-list",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1,
+            "manufacturerId": manufacturer_id,
+            "modelId": model_id,
+            "year": str(year)
+        }
+        
+        print(f"📡 Calling TecDoc API with params: {article_params}")
+        response = requests.post(url, json=article_params, timeout=60)
+        
+        if response.status_code != 200:
+            print(f"❌ Failed to get articles: {response.status_code}")
+            print(f"Response: {response.text}")
+            return []
+        
+        data = response.json()
+        print(f"📦 Raw TecDoc response: {data}")
+        
+        # Extract OEM numbers from response
+        oem_numbers = []
+        
+        # Handle different response formats
+        if isinstance(data, list):
+            # If response is a list, look for articles in each item
+            for item in data:
+                if isinstance(item, dict) and 'articles' in item:
+                    for article in item['articles']:
+                        if article.get('articleNo'):
+                            oem_numbers.append(article['articleNo'])
+        elif isinstance(data, dict):
+            # If response is a dict, look for articles
+            if 'articles' in data:
+                for article in data['articles']:
+                    if article.get('articleNo'):
+                        oem_numbers.append(article['articleNo'])
+            # Also check for other possible fields
+            elif 'parts' in data:
+                for part in data['parts']:
+                    if part.get('oem_number'):
+                        oem_numbers.append(part['oem_number'])
+            elif 'items' in data:
+                for item in data['items']:
+                    if item.get('oem') or item.get('partNumber'):
+                        oem_numbers.append(item.get('oem') or item.get('partNumber'))
+        
+        if oem_numbers:
+            print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from TecDoc API")
+            return oem_numbers
+        else:
+            print(f"📦 No OEM numbers found from TecDoc API")
+            return []
         
     except Exception as e:
         print(f"❌ Error calling TecDoc API: {e}")
