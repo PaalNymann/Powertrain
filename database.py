@@ -11,7 +11,7 @@ class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
     id = Column(Integer, primary_key=True)
-    product_id = Column(String(50), nullable=False)
+    # Remove product_id field since it doesn't exist in Railway database
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
     vendor = Column(String(200))
@@ -142,14 +142,13 @@ def update_shopify_cache(products_data):
     session = SessionLocal()
     try:
         for product_data in products_data:
-            # Check if product exists by product_id
+            # Check if product exists by id (not product_id)
             existing_product = session.query(ShopifyProduct).filter(
-                ShopifyProduct.product_id == str(product_data['id'])
+                ShopifyProduct.id == int(product_data['id'])
             ).first()
             
             if existing_product:
-                # Update existing product
-                existing_product.product_id = product_data.get('id', '')
+                # Update existing product - use id directly
                 existing_product.title = product_data.get('title', '')
                 existing_product.handle = product_data.get('handle', '')
                 existing_product.vendor = product_data.get('vendor', '')
@@ -180,9 +179,9 @@ def update_shopify_cache(products_data):
                     existing_product.inventory_quantity = total_inventory
                     
             else:
-                # Create new product
+                # Create new product - use id directly
                 new_product = ShopifyProduct(
-                    product_id=product_data.get('id', ''),
+                    id=int(product_data.get('id', 0)),  # Use id as primary key
                     title=product_data.get('title', ''),
                     handle=product_data.get('handle', ''),
                     vendor=product_data.get('vendor', ''),
@@ -229,9 +228,9 @@ def update_product_oem_metafields(product_id, oem_numbers):
     """Update product metafields with OEM numbers from TecDoc"""
     session = SessionLocal()
     try:
-        # Find the product
+        # Find the product by id (not product_id)
         product = session.query(ShopifyProduct).filter(
-            ShopifyProduct.product_id == str(product_id)
+            ShopifyProduct.id == int(product_id)
         ).first()
         
         if not product:
@@ -265,7 +264,7 @@ def get_products_without_oem():
             )
         ).all()
         
-        return [product.product_id for product in products]
+        return [product.id for product in products]  # Return id instead of product_id
         
     except Exception as e:
         print(f"Error getting products without OEM: {e}")
