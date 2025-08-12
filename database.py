@@ -108,20 +108,7 @@ def update_shopify_cache(products_data):
                 # Update existing product - only update fields that exist
                 existing_product.title = product_data.get('title', '')
                 existing_product.handle = product_data.get('handle', '')
-                # Remove updates for fields that don't exist: vendor, product_type, tags, price, updated_at
-                
-                # Update metafields if available
-                if 'metafields' in product_data:
-                    for metafield in product_data['metafields']:
-                        key = metafield.get('key', '')
-                        value = metafield.get('value', '')
-                        
-                        if key == 'original_nummer':
-                            existing_product.original_nummer_metafield = value
-                        elif key == 'oem':
-                            existing_product.oem_metafield = value
-                        elif key == 'number':
-                            existing_product.number_metafield = value
+                # Note: metafield columns don't exist in Railway database
                 
                 # Update inventory
                 if 'variants' in product_data and product_data['variants']:
@@ -137,22 +124,12 @@ def update_shopify_cache(products_data):
                     id=int(product_data.get('id', 0)),  # Use id as primary key
                     title=product_data.get('title', ''),
                     handle=product_data.get('handle', ''),
-                    # Remove fields that don't exist: vendor, product_type, tags, price
+                    # Note: metafield columns don't exist in Railway database
                     inventory_quantity=0
                 )
                 
-                # Set metafields if available
-                if 'metafields' in product_data:
-                    for metafield in product_data['metafields']:
-                        key = metafield.get('key', '')
-                        value = metafield.get('value', '')
-                        
-                        if key == 'original_nummer':
-                            new_product.original_nummer_metafield = value
-                        elif key == 'oem':
-                            new_product.oem_metafield = value
-                        elif key == 'number':
-                            new_product.number_metafield = value
+                # Note: metafield columns don't exist in Railway database
+                # Cannot set metafields until database structure is fixed
                 
                 # Set inventory
                 if 'variants' in product_data and product_data['variants']:
