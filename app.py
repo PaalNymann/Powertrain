@@ -93,6 +93,67 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         # Use synchronous TecDoc API call via Apify
         url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         
+        # Try a direct search approach using search-articles-by-article-oem-number
+        # This should work without needing manufacturer/model IDs first
+        print(f"📡 Attempting direct article search...")
+        
+        search_params = {
+            "selectPageType": "search-articles-by-article-oem-number",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1,
+            "searchTerm": f"{brand} {model} {year}"
+        }
+        
+        print(f"📡 Calling TecDoc API with params: {search_params}")
+        response = requests.post(url, json=search_params, timeout=60)
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"📦 Raw TecDoc response: {data}")
+            
+            # Extract OEM numbers from response
+            oem_numbers = []
+            
+            # Handle different response formats
+            if isinstance(data, list):
+                # If response is a list, look for articles in each item
+                for item in data:
+                    if isinstance(item, dict) and 'articles' in item:
+                        for article in item['articles']:
+                            if article.get('articleNo'):
+                                oem_numbers.append(article['articleNo'])
+            elif isinstance(data, dict):
+                # If response is a dict, look for articles
+                if 'articles' in data:
+                    for article in data['articles']:
+                        if article.get('articleNo'):
+                            oem_numbers.append(article['articleNo'])
+                # Also check for other possible fields
+                elif 'parts' in data:
+                    for part in data['parts']:
+                        if part.get('oem_number'):
+                            oem_numbers.append(part['oem_number'])
+                elif 'items' in data:
+                    for item in data['items']:
+                        if item.get('oem') or item.get('partNumber'):
+                            oem_numbers.append(item.get('oem') or item.get('partNumber'))
+            
+            if oem_numbers:
+                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from TecDoc API")
+                return oem_numbers
+            else:
+                print(f"📦 No OEM numbers found from direct search")
+        
+        elif response.status_code == 201:
+            print(f"⚠️ API accepted but returned empty response (201)")
+        else:
+            print(f"❌ Direct search failed: {response.status_code}")
+            print(f"Response: {response.text}")
+        
+        # If direct search failed, try the 3-step approach as fallback
+        print(f"🔄 Trying 3-step approach as fallback...")
+        
         # Step 1: Get manufacturers for passenger cars
         print(f"📡 Step 1: Getting manufacturers for passenger cars...")
         manufacturer_params = {
