@@ -115,8 +115,8 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         if response.status_code != 200:
             print(f"❌ TecDoc API error: {response.status_code}")
             print(f"Response: {response.text}")
-            # Fallback to existing dataset
-            return get_oem_numbers_from_existing_dataset(brand, model, year)
+            print(f"⚠️ TecDoc API call failed - returning empty list")
+            return []
         
         data = response.json()
         print(f"📦 Raw TecDoc response: {data}")
@@ -148,39 +148,12 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
             print(f"📦 Found {len(oem_numbers)} OEM numbers from TecDoc API for {brand} {model} {year}")
             return oem_numbers
         else:
-            print(f"📦 No OEM numbers found from TecDoc API, trying fallback dataset")
-            return get_oem_numbers_from_existing_dataset(brand, model, year)
+            print(f"📦 No OEM numbers found from TecDoc API")
+            return []
         
     except Exception as e:
         print(f"❌ Error calling TecDoc API: {e}")
-        print(f"📦 Trying fallback dataset")
-        return get_oem_numbers_from_existing_dataset(brand, model, year)
-
-def get_oem_numbers_from_existing_dataset(brand, model, year):
-    """Fallback function to get OEM numbers from existing datasets"""
-    try:
-        print(f"🔄 Using fallback dataset for {brand} {model} {year}")
-        
-        # Use a known working dataset that contains car parts
-        dataset_url = "https://api.apify.com/v2/datasets/G7jrXL7E99KRJefhq/items"
-        response = requests.get(f"{dataset_url}?token={TECDOC_API_KEY}", timeout=30)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data and len(data) > 0 and 'articles' in data[0]:
-                articles = data[0]['articles']
-                oem_numbers = [article['articleNo'] for article in articles if article.get('articleNo')]
-                print(f"📦 Found {len(oem_numbers)} OEM numbers from fallback dataset")
-                return oem_numbers[:20]  # Limit to first 20 for testing
-            else:
-                print(f"❌ No articles found in fallback dataset")
-                return []
-        else:
-            print(f"❌ Fallback dataset error: {response.status_code}")
-            return []
-            
-    except Exception as e:
-        print(f"❌ Error with fallback dataset: {e}")
+        print(f"⚠️ TecDoc API call failed - returning empty list")
         return []
 
 @app.route('/api/car_parts_search')
@@ -222,12 +195,7 @@ def car_parts_search():
             )
         except Exception as e:
             print(f"❌ Error getting OEM numbers from TecDoc: {e}")
-            # Use fallback dataset
-            oem_numbers = get_oem_numbers_from_existing_dataset(
-                vehicle_info['make'], 
-                vehicle_info['model'], 
-                vehicle_info['year']
-            )
+            oem_numbers = []
         
         if not oem_numbers:
             print(f"📦 No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
