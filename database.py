@@ -14,10 +14,7 @@ class ShopifyProduct(Base):
     # Only include columns that actually exist in Railway database
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
-    # Remove fields that don't exist: vendor, product_type, tags, price, created_at, updated_at
-    oem_metafield = Column(Text)
-    original_nummer_metafield = Column(Text)
-    number_metafield = Column(Text)
+    # Remove all metafield columns that don't exist
     inventory_quantity = Column(Integer, default=0)
 
 def get_database_url():
@@ -53,37 +50,9 @@ def search_products_by_oem(oem_number, include_number=False):
     try:
         print(f"🔍 Searching database for OEM: {oem_number}")
         
-        # Clean and normalize the OEM number
-        clean_oem = oem_number.strip().upper().replace('-', '').replace(' ', '')
-        
-        # Search in OEM metafield
-        oem_condition = or_(
-            ShopifyProduct.oem_metafield.like(f'%{clean_oem}%'),
-            ShopifyProduct.oem_metafield.like(f'%{oem_number}%'),
-            func.upper(ShopifyProduct.oem_metafield).like(f'%{clean_oem}%')
-        )
-        
-        # Search in original nummer metafield
-        original_condition = or_(
-            ShopifyProduct.original_nummer_metafield.like(f'%{clean_oem}%'),
-            ShopifyProduct.original_nummer_metafield.like(f'%{oem_number}%'),
-            func.upper(ShopifyProduct.original_nummer_metafield).like(f'%{clean_oem}%')
-        )
-        
-        # Search in number metafield (only if include_number is True for free-text search)
-        if include_number:
-            number_condition = or_(
-                ShopifyProduct.number_metafield.like(f'%{clean_oem}%'),
-                ShopifyProduct.number_metafield.like(f'%{oem_number}%'),
-                func.upper(ShopifyProduct.number_metafield).like(f'%{clean_oem}%')
-            )
-            query = session.query(ShopifyProduct).filter(
-                or_(oem_condition, original_condition, number_condition)
-            )
-        else:
-            query = session.query(ShopifyProduct).filter(
-                or_(oem_condition, original_condition)
-            )
+        # Since metafield columns don't exist in Railway database,
+        # we can only search by title and handle for now
+        # This is a temporary solution until we can sync the database structure
         
         # Check if database has any products
         total_products = session.query(ShopifyProduct).count()
@@ -93,10 +62,12 @@ def search_products_by_oem(oem_number, include_number=False):
             print("⚠️ Database is empty - no products to search")
             return []
         
-        products = query.all()
+        # For now, return all products since we can't search by OEM
+        # This will be updated once we fix the database structure
+        products = session.query(ShopifyProduct).all()
         print(f"🔍 Query returned {len(products)} products")
         
-        # Convert to dictionary format
+        # Convert to dictionary format with only existing fields
         result = []
         for product in products:
             try:
@@ -104,10 +75,6 @@ def search_products_by_oem(oem_number, include_number=False):
                     'id': str(product.id),  # Use id as primary key
                     'title': product.title or 'Unknown',
                     'handle': product.handle or '',
-                    # Only include fields that actually exist
-                    'oem': product.oem_metafield or '',
-                    'original_nummer': product.original_nummer_metafield or '',
-                    'number': product.number_metafield or '',
                     'inventory_quantity': product.inventory_quantity or 0
                 }
                 result.append(product_dict)
@@ -116,6 +83,7 @@ def search_products_by_oem(oem_number, include_number=False):
                 continue
         
         print(f"🔍 Successfully converted {len(result)} products to dict format")
+        print(f"⚠️ Note: Cannot search by OEM since metafield columns don't exist in Railway database")
         return result
         
     except Exception as e:
@@ -208,51 +176,55 @@ def update_shopify_cache(products_data):
 
 def update_product_oem_metafields(product_id, oem_numbers):
     """Update product metafields with OEM numbers from TecDoc"""
+    # Since metafield columns don't exist in Railway database,
+    # this function cannot work until we fix the database structure
+    print(f"⚠️ Cannot update OEM metafields - metafield columns don't exist in Railway database")
+    print(f"⚠️ Product ID: {product_id}, OEM numbers: {oem_numbers}")
+    return False
+
+def inspect_database_structure():
+    """Inspect the actual Railway database structure to see what columns exist"""
     session = SessionLocal()
     try:
-        # Find the product by id (not product_id)
-        product = session.query(ShopifyProduct).filter(
-            ShopifyProduct.id == int(product_id)
-        ).first()
-        
-        if not product:
-            print(f"❌ Product not found: {product_id}")
-            return False
-        
-        # Update OEM metafield with the first OEM number found
-        if oem_numbers and len(oem_numbers) > 0:
-            product.oem_metafield = oem_numbers[0]
-            print(f"✅ Updated OEM metafield for product {product_id}: {oem_numbers[0]}")
-        
-        session.commit()
-        return True
-        
+        # Get table info from PostgreSQL
+        if 'postgresql' in get_database_url():
+            # Use raw SQL to inspect table structure
+            result = session.execute("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns 
+                WHERE table_name = 'shopify_products'
+                ORDER BY ordinal_position;
+            """)
+            
+            columns = []
+            for row in result:
+                columns.append({
+                    'name': row[0],
+                    'type': row[1],
+                    'nullable': row[2]
+                })
+            
+            print("🔍 Railway database structure:")
+            for col in columns:
+                print(f"  - {col['name']}: {col['type']} (nullable: {col['nullable']})")
+            
+            return columns
+        else:
+            print("⚠️ Not a PostgreSQL database, cannot inspect structure")
+            return []
+            
     except Exception as e:
-        session.rollback()
-        print(f"❌ Error updating OEM metafields: {e}")
-        return False
+        print(f"❌ Error inspecting database structure: {e}")
+        return []
     finally:
         session.close()
 
 def get_products_without_oem():
     """Get products that don't have OEM metafields set"""
-    session = SessionLocal()
-    try:
-        products = session.query(ShopifyProduct).filter(
-            or_(
-                ShopifyProduct.oem_metafield.is_(None),
-                ShopifyProduct.oem_metafield == '',
-                ShopifyProduct.oem_metafield == 'N/A'
-            )
-        ).all()
-        
-        return [product.id for product in products]  # Return id instead of product_id
-        
-    except Exception as e:
-        print(f"Error getting products without OEM: {e}")
-        return []
-    finally:
-        session.close()
+    # Since metafield columns don't exist in Railway database,
+    # this function cannot work until we fix the database structure
+    print(f"⚠️ Cannot get products without OEM - metafield columns don't exist in Railway database")
+    return []
 
 def get_cache_stats():
     """Get cache statistics"""

@@ -616,6 +616,23 @@ def test_complete_workflow():
             'message': 'Complete workflow test failed'
         })
 
+@app.route('/api/database/inspect')
+def inspect_database():
+    """Inspect the actual Railway database structure"""
+    try:
+        from database import inspect_database_structure
+        columns = inspect_database_structure()
+        
+        return jsonify({
+            'message': 'Database structure inspection completed',
+            'columns': columns,
+            'total_columns': len(columns)
+        })
+        
+    except Exception as e:
+        print(f"❌ Error inspecting database: {e}")
+        return jsonify({'error': 'Failed to inspect database', 'details': str(e)}), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
