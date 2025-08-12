@@ -79,7 +79,78 @@ def extract_vehicle_info(vehicle_data):
         print(f"❌ Error extracting vehicle info: {e}")
         return None
 
-
+def get_manufacturer_and_model_ids(brand, model):
+    """Get manufacturer and model IDs from TecDoc API"""
+    try:
+        print(f"🔍 Getting manufacturer and model IDs for {brand} {model}")
+        
+        # First, get manufacturers list
+        url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
+        manufacturer_params = {
+            "selectPageType": "get-manufacturers",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1
+        }
+        
+        print(f"📡 Getting manufacturers list...")
+        response = requests.post(url, json=manufacturer_params, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"❌ Failed to get manufacturers: {response.status_code}")
+            return None, None
+        
+        manufacturers_data = response.json()
+        print(f"📦 Manufacturers response: {manufacturers_data}")
+        
+        # Find matching manufacturer
+        manufacturer_id = None
+        for manufacturer in manufacturers_data:
+            if manufacturer.get('name', '').upper() == brand.upper():
+                manufacturer_id = manufacturer.get('id')
+                print(f"✅ Found manufacturer {brand} with ID: {manufacturer_id}")
+                break
+        
+        if not manufacturer_id:
+            print(f"❌ Manufacturer {brand} not found")
+            return None, None
+        
+        # Now get models for this manufacturer
+        model_params = {
+            "selectPageType": "get-models",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1,
+            "manufacturerId": manufacturer_id
+        }
+        
+        print(f"📡 Getting models for manufacturer {manufacturer_id}...")
+        response = requests.post(url, json=model_params, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"❌ Failed to get models: {response.status_code}")
+            return manufacturer_id, None
+        
+        models_data = response.json()
+        print(f"📦 Models response: {models_data}")
+        
+        # Find matching model
+        model_id = None
+        for model_item in models_data:
+            if model_item.get('name', '').upper() == model.upper():
+                model_id = model_item.get('id')
+                print(f"✅ Found model {model} with ID: {model_id}")
+                break
+        
+        if not model_id:
+            print(f"⚠️ Model {model} not found for manufacturer {brand}")
+            return manufacturer_id, None
+        
+        return manufacturer_id, model_id
+        
+    except Exception as e:
+        print(f"❌ Error getting manufacturer/model IDs: {e}")
+        return None, None
 
 def get_oem_numbers_from_tecdoc(brand, model, year):
     """Get OEM numbers from TecDoc API via Apify"""
@@ -90,23 +161,27 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
     print(f"🔍 Searching TecDoc API for {brand} {model} {year}")
     
     try:
+        # First, get manufacturer and model IDs
+        manufacturer_id, model_id = get_manufacturer_and_model_ids(brand, model)
+        
+        if not manufacturer_id:
+            print(f"❌ Could not get manufacturer ID for {brand}")
+            return []
+        
         # Use synchronous TecDoc API call via Apify
         url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         
-        # Prepare search parameters based on OpenAPI schema
-        # We need to use the correct endpoint type and parameters
+        # Prepare search parameters with actual IDs
         search_params = {
             "selectPageType": "get-article-list",  # Required parameter
             "langId": 4,  # English (GB)
             "countryId": 1,  # Germany (default)
             "vehicleTypeId": 1,  # Passenger car
-            "manufacturerId": None,  # Will be set based on brand
-            "modelId": None,  # Will be set based on model
+            "manufacturerId": manufacturer_id,  # Now we have the actual ID
+            "modelId": model_id,  # Now we have the actual ID (or None)
             "year": str(year)
         }
         
-        # Map brand names to manufacturer IDs (we'll need to get this dynamically)
-        # For now, let's try to get articles for the vehicle type
         print(f"📡 Calling TecDoc API with params: {search_params}")
         
         # Make synchronous call
