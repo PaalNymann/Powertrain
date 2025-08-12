@@ -50,22 +50,26 @@ def init_db():
         raise
 
 def search_products_by_oem(oem_number, include_number=False):
-    """Search for products by OEM number in available metafields"""
+    """Search for products by OEM number"""
+    if not oem_number:
+        print("❌ No OEM number provided for search")
+        return []
+    
     session = SessionLocal()
     try:
-        from sqlalchemy import or_, func
+        print(f"🔍 Searching database for OEM: {oem_number}")
         
-        # Clean and normalize the OEM number for better matching
-        clean_oem = oem_number.strip().upper().replace(' ', '').replace('-', '')
+        # Clean and normalize the OEM number
+        clean_oem = oem_number.strip().upper().replace('-', '').replace(' ', '')
         
-        # Search in available metafields for license plate search
-        # Use more flexible matching with LIKE and pattern variations
+        # Search in OEM metafield
         oem_condition = or_(
             ShopifyProduct.oem_metafield.like(f'%{clean_oem}%'),
             ShopifyProduct.oem_metafield.like(f'%{oem_number}%'),
             func.upper(ShopifyProduct.oem_metafield).like(f'%{clean_oem}%')
         )
         
+        # Search in original nummer metafield
         original_condition = or_(
             ShopifyProduct.original_nummer_metafield.like(f'%{clean_oem}%'),
             ShopifyProduct.original_nummer_metafield.like(f'%{oem_number}%'),
@@ -87,33 +91,48 @@ def search_products_by_oem(oem_number, include_number=False):
                 or_(oem_condition, original_condition)
             )
         
+        # Check if database has any products
+        total_products = session.query(ShopifyProduct).count()
+        print(f"📊 Total products in database: {total_products}")
+        
+        if total_products == 0:
+            print("⚠️ Database is empty - no products to search")
+            return []
+        
         products = query.all()
+        print(f"🔍 Query returned {len(products)} products")
         
         # Convert to dictionary format
         result = []
         for product in products:
-            product_dict = {
-                'id': str(product.id),  # Use id instead of product_id
-                'title': product.title,
-                'handle': product.handle,
-                'vendor': product.vendor,
-                'product_type': product.product_type,
-                'tags': product.tags,
-                'oem': product.oem_metafield,
-                'original_nummer': product.original_nummer_metafield,
-                'number': product.number_metafield,
-                'inventory_quantity': product.inventory_quantity,
-                'price': product.price,
-                'created_at': product.created_at.isoformat() if product.created_at else None,
-                'updated_at': product.updated_at.isoformat() if product.updated_at else None
-            }
-            result.append(product_dict)
+            try:
+                product_dict = {
+                    'id': str(product.id),  # Use id instead of product_id
+                    'title': product.title or 'Unknown',
+                    'handle': product.handle or '',
+                    'vendor': product.vendor or '',
+                    'product_type': product.product_type or '',
+                    'tags': product.tags or '',
+                    'oem': product.oem_metafield or '',
+                    'original_nummer': product.original_nummer_metafield or '',
+                    'number': product.number_metafield or '',
+                    'inventory_quantity': product.inventory_quantity or 0,
+                    'price': product.price or '',
+                    'created_at': product.created_at.isoformat() if product.created_at else None,
+                    'updated_at': product.updated_at.isoformat() if product.updated_at else None
+                }
+                result.append(product_dict)
+            except Exception as e:
+                print(f"❌ Error converting product {getattr(product, 'id', 'unknown')} to dict: {e}")
+                continue
         
-        print(f"🔍 Found {len(result)} products matching OEM number: {oem_number}")
+        print(f"🔍 Successfully converted {len(result)} products to dict format")
         return result
         
     except Exception as e:
-        print(f"Error searching database: {e}")
+        print(f"❌ Error searching database: {e}")
+        import traceback
+        traceback.print_exc()
         return []
     finally:
         session.close()

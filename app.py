@@ -214,11 +214,20 @@ def car_parts_search():
         
         # Step 2: Get OEM numbers from TecDoc API
         print(f"🔍 Step 2: Getting OEM numbers from TecDoc API for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
-        oem_numbers = get_oem_numbers_from_tecdoc(
-            vehicle_info['make'], 
-            vehicle_info['model'], 
-            vehicle_info['year']
-        )
+        try:
+            oem_numbers = get_oem_numbers_from_tecdoc(
+                vehicle_info['make'], 
+                vehicle_info['model'], 
+                vehicle_info['year']
+            )
+        except Exception as e:
+            print(f"❌ Error getting OEM numbers from TecDoc: {e}")
+            # Use fallback dataset
+            oem_numbers = get_oem_numbers_from_existing_dataset(
+                vehicle_info['make'], 
+                vehicle_info['model'], 
+                vehicle_info['year']
+            )
         
         if not oem_numbers:
             print(f"📦 No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
@@ -237,19 +246,32 @@ def car_parts_search():
         updated_metafields = 0
         
         for oem_number in oem_numbers:
-            products = search_products_by_oem(oem_number, include_number=False)
-            if products:
-                all_products.extend(products)
+            try:
+                print(f"🔍 Searching for OEM number: {oem_number}")
+                products = search_products_by_oem(oem_number, include_number=False)
+                print(f"🔍 Found {len(products) if products else 0} products for OEM: {oem_number}")
                 
-                # Update metafields for products that don't have OEM numbers set
-                for product in products:
-                    if not product.get('oem') or product.get('oem') in ['', 'N/A', None]:
-                        # Update the product's OEM metafield
-                        success = update_product_oem_metafields(product['id'], [oem_number])
-                        if success:
-                            updated_metafields += 1
-                            # Update the product dict to reflect the change
-                            product['oem'] = oem_number
+                if products:
+                    all_products.extend(products)
+                    
+                    # Update metafields for products that don't have OEM numbers set
+                    for product in products:
+                        if not product.get('oem') or product.get('oem') in ['', 'N/A', None]:
+                            try:
+                                # Update the product's OEM metafield
+                                success = update_product_oem_metafields(product['id'], [oem_number])
+                                if success:
+                                    updated_metafields += 1
+                                    # Update the product dict to reflect the change
+                                    product['oem'] = oem_number
+                            except Exception as e:
+                                print(f"❌ Error updating metafield for product {product['id']}: {e}")
+                else:
+                    print(f"🔍 No products found for OEM: {oem_number}")
+                    
+            except Exception as e:
+                print(f"❌ Error searching for OEM {oem_number}: {e}")
+                continue
         
         # Remove duplicates
         unique_products = []
@@ -273,7 +295,9 @@ def car_parts_search():
         
     except Exception as e:
         print(f"❌ Error in car_parts_search: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
 @app.route('/api/part_number_search')
 def part_number_search():
