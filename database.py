@@ -11,20 +11,14 @@ class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
     id = Column(Integer, primary_key=True)
-    # Remove product_id field since it doesn't exist in Railway database
+    # Only include columns that actually exist in Railway database
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
-    vendor = Column(String(200))
-    product_type = Column(String(200))
-    tags = Column(Text)
-    # Metafields som faktisk finnes i databasen
+    # Remove fields that don't exist: vendor, product_type, tags, price, created_at, updated_at
     oem_metafield = Column(Text)
     original_nummer_metafield = Column(Text)
     number_metafield = Column(Text)
     inventory_quantity = Column(Integer, default=0)
-    price = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 def get_database_url():
     """Get database URL from environment or use SQLite for local development"""
@@ -107,19 +101,14 @@ def search_products_by_oem(oem_number, include_number=False):
         for product in products:
             try:
                 product_dict = {
-                    'id': str(product.id),  # Use id instead of product_id
+                    'id': str(product.id),  # Use id as primary key
                     'title': product.title or 'Unknown',
                     'handle': product.handle or '',
-                    'vendor': product.vendor or '',
-                    'product_type': product.product_type or '',
-                    'tags': product.tags or '',
+                    # Only include fields that actually exist
                     'oem': product.oem_metafield or '',
                     'original_nummer': product.original_nummer_metafield or '',
                     'number': product.number_metafield or '',
-                    'inventory_quantity': product.inventory_quantity or 0,
-                    'price': product.price or '',
-                    'created_at': product.created_at.isoformat() if product.created_at else None,
-                    'updated_at': product.updated_at.isoformat() if product.updated_at else None
+                    'inventory_quantity': product.inventory_quantity or 0
                 }
                 result.append(product_dict)
             except Exception as e:
@@ -148,14 +137,10 @@ def update_shopify_cache(products_data):
             ).first()
             
             if existing_product:
-                # Update existing product - use id directly
+                # Update existing product - only update fields that exist
                 existing_product.title = product_data.get('title', '')
                 existing_product.handle = product_data.get('handle', '')
-                existing_product.vendor = product_data.get('vendor', '')
-                existing_product.product_type = product_data.get('product_type', '')
-                existing_product.tags = product_data.get('tags', '')
-                existing_product.price = product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else ''
-                existing_product.updated_at = datetime.utcnow()
+                # Remove updates for fields that don't exist: vendor, product_type, tags, price, updated_at
                 
                 # Update metafields if available
                 if 'metafields' in product_data:
@@ -179,15 +164,12 @@ def update_shopify_cache(products_data):
                     existing_product.inventory_quantity = total_inventory
                     
             else:
-                # Create new product - use id directly
+                # Create new product - only include fields that exist
                 new_product = ShopifyProduct(
                     id=int(product_data.get('id', 0)),  # Use id as primary key
                     title=product_data.get('title', ''),
                     handle=product_data.get('handle', ''),
-                    vendor=product_data.get('vendor', ''),
-                    product_type=product_data.get('product_type', ''),
-                    tags=product_data.get('tags', ''),
-                    price=product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else '',
+                    # Remove fields that don't exist: vendor, product_type, tags, price
                     inventory_quantity=0
                 )
                 
