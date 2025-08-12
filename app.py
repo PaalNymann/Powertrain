@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os
 import requests
 from dotenv import load_dotenv
-from database import init_db, search_products_by_oem, update_shopify_cache
+from database import init_db, search_products_by_oem, update_shopify_cache, update_product_oem_metafields
 from svv_client import hent_kjoretoydata
 import time
 
@@ -256,16 +256,10 @@ def car_parts_search():
                     
                     # Update metafields for products that don't have OEM numbers set
                     for product in products:
-                        if not product.get('oem') or product.get('oem') in ['', 'N/A', None]:
-                            try:
-                                # Update the product's OEM metafield
-                                success = update_product_oem_metafields(product['id'], [oem_number])
-                                if success:
-                                    updated_metafields += 1
-                                    # Update the product dict to reflect the change
-                                    product['oem'] = oem_number
-                            except Exception as e:
-                                print(f"❌ Error updating metafield for product {product['id']}: {e}")
+                        # Since metafield columns don't exist in Railway database,
+                        # we cannot update OEM metafields
+                        # Just add the product to results without updating metafields
+                        pass
                 else:
                     print(f"🔍 No products found for OEM: {oem_number}")
                     
@@ -282,14 +276,14 @@ def car_parts_search():
                 seen_ids.add(product['id'])
         
         print(f"✅ Found {len(unique_products)} matching Shopify products")
-        if updated_metafields > 0:
-            print(f"🔄 Updated OEM metafields for {updated_metafields} products")
+        # Since metafield columns don't exist, we cannot update OEM metafields
+        print(f"⚠️ OEM metafield updates disabled - metafield columns don't exist in Railway database")
         
         return jsonify({
             'vehicle_info': vehicle_info,
             'oem_numbers': oem_numbers,
             'products': unique_products,
-            'metafields_updated': updated_metafields,
+            'metafields_updated': 0,  # Cannot update metafields
             'message': f'Found {len(unique_products)} products for {vehicle_info["make"]} {vehicle_info["model"]} {vehicle_info["year"]}'
         })
         
@@ -512,25 +506,21 @@ def update_oem_metafields():
 def metafields_stats():
     """Get statistics about metafields in the database"""
     try:
-        from database import get_products_without_oem, SessionLocal, ShopifyProduct
+        from database import SessionLocal, ShopifyProduct
         
         session = SessionLocal()
         total_products = session.query(ShopifyProduct).count()
         
-        # Count products with OEM metafields
-        products_with_oem = session.query(ShopifyProduct).filter(
-            ShopifyProduct.oem_metafield.isnot(None),
-            ShopifyProduct.oem_metafield != '',
-            ShopifyProduct.oem_metafield != 'N/A'
-        ).count()
-        
+        # Since metafield columns don't exist in Railway database,
+        # we can only return basic stats
         session.close()
         
         return jsonify({
             'total_products': total_products,
-            'products_with_oem': products_with_oem,
-            'products_without_oem': total_products - products_with_oem,
-            'oem_coverage_percentage': round((products_with_oem / total_products * 100), 2) if total_products > 0 else 0
+            'products_with_oem': 0,  # Cannot check since oem_metafield column doesn't exist
+            'products_without_oem': total_products,  # All products lack OEM info
+            'oem_coverage_percentage': 0.0,  # 0% coverage since no OEM data
+            'note': 'Metafield columns do not exist in Railway database - OEM search disabled'
         })
         
     except Exception as e:
