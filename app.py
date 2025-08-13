@@ -19,7 +19,7 @@ SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN')
 SHOPIFY_VERSION = os.getenv('SHOPIFY_VERSION') or os.getenv('SHOPIFY_API_VERSION', '2023-10')
 # TecDoc API via Apify
 TECDOC_API_KEY = os.getenv('TECDOC_API_KEY')
-TECDOC_BASE_URL = "https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/run-sync"
+TECDOC_BASE_URL = "https://api.apify.com/v2/acts/Zt16dqMI2yN7Igggl/run-sync"
 
 
 
@@ -83,7 +83,7 @@ def extract_vehicle_info(vehicle_data):
 
 # Force Railway deployment - implement correct TecDoc API approach
 def get_oem_numbers_from_tecdoc(brand, model, year):
-    """Get OEM numbers from TecDoc API via Apify using correct endpoint format"""
+    """Get OEM numbers from TecDoc API via Apify using direct search"""
     if not all([brand, model, year]):
         print(f"❌ Missing required parameters: brand={brand}, model={model}, year={year}")
         return []
@@ -94,42 +94,15 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         # Use synchronous TecDoc API call via Apify
         url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         
-        print(f"🔍 Testing correct TecDoc API endpoints...")
+        print(f"🔍 Implementing direct TecDoc API search...")
         
-        # Test 1: Search by OEM number directly (most reliable)
-        print(f"📡 Test 1: Direct OEM search for {brand} {model} {year}")
-        oem_search_params = {
-            "selectPageType": "search-articles-by-article-oem-number",
-            "langId": 4,
-            "countryId": 1,
-            "searchTerm": f"{brand} {model} {year}"
-        }
-        
-        response = requests.post(url, json=oem_search_params, timeout=60)
-        print(f"📦 Test 1 response: {response.status_code}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"📦 Test 1 data: {data}")
-            
-            # Extract OEM numbers from response
-            oem_numbers = extract_oem_numbers_from_response(data)
-            if oem_numbers:
-                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from direct search")
-                return oem_numbers
-        else:
-            print(f"📦 Test 1 error: {response.text}")
-        
-        # Test 2: Get manufacturers first, then models, then articles
-        print(f"📡 Test 2: 3-step approach with manufacturer/model lookup")
-        
-        # Step 2a: Get manufacturers for passenger cars
-        print(f"📡 Step 2a: Getting manufacturers...")
+        # Step 1: Get manufacturers for passenger cars (type 1)
+        print(f"📡 Step 1: Getting manufacturers for {brand}...")
         manufacturer_params = {
             "selectPageType": "get-manufacturers-by-type-id-lang-id-country-id",
             "langId": 4,
-            "countryId": 1,
-            "vehicleTypeId": 1
+            "countryId": 62,  # Germany (European models like VOLVO V70)
+            "vehicleTypeId": 1  # Passenger cars
         }
         
         response = requests.post(url, json=manufacturer_params, timeout=60)
@@ -139,25 +112,25 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
             manufacturers_data = response.json()
             print(f"📦 Manufacturers data: {manufacturers_data}")
             
-            # Find VOLVO manufacturer ID
-            volvo_id = None
+            # Find manufacturer ID for the brand
+            manufacturer_id = None
             if isinstance(manufacturers_data, list):
                 for mfr in manufacturers_data:
                     if isinstance(mfr, dict) and mfr.get('name', '').upper() == brand.upper():
-                        volvo_id = mfr.get('id')
+                        manufacturer_id = mfr.get('id')
                         break
             
-            if volvo_id:
-                print(f"✅ Found {brand} manufacturer ID: {volvo_id}")
+            if manufacturer_id:
+                print(f"✅ Found {brand} manufacturer ID: {manufacturer_id}")
                 
-                # Step 2b: Get models for VOLVO
-                print(f"📡 Step 2b: Getting models for {brand}...")
+                # Step 2: Get models for the manufacturer
+                print(f"📡 Step 2: Getting models for {brand}...")
                 model_params = {
                     "selectPageType": "get-models",
                     "langId": 4,
-                    "countryId": 1,
-                    "vehicleTypeId": 1,
-                    "manufacturerId": volvo_id
+                    "countryId": 62,  # Germany (European models)
+                    "vehicleTypeId": 1,  # Passenger cars
+                    "manufacturerId": manufacturer_id
                 }
                 
                 response = requests.post(url, json=model_params, timeout=60)
@@ -167,26 +140,26 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
                     models_data = response.json()
                     print(f"📦 Models data: {models_data}")
                     
-                    # Find V70 model ID
-                    v70_id = None
+                    # Find model ID for the model
+                    model_id = None
                     if isinstance(models_data, list):
                         for mdl in models_data:
                             if isinstance(mdl, dict) and mdl.get('name', '').upper() == model.upper():
-                                v70_id = mdl.get('id')
+                                model_id = mdl.get('id')
                                 break
                     
-                    if v70_id:
-                        print(f"✅ Found {model} model ID: {v70_id}")
+                    if model_id:
+                        print(f"✅ Found {model} model ID: {model_id}")
                         
-                        # Step 2c: Get articles for VOLVO V70 2006
-                        print(f"📡 Step 2c: Getting articles for {brand} {model} {year}...")
+                        # Step 3: Get articles for the specific vehicle
+                        print(f"📡 Step 3: Getting articles for {brand} {model} {year}...")
                         article_params = {
                             "selectPageType": "get-article-list",
                             "langId": 4,
-                            "countryId": 1,
-                            "vehicleTypeId": 1,
-                            "manufacturerId": volvo_id,
-                            "modelId": v70_id,
+                            "countryId": 62,  # Germany (European models)
+                            "vehicleTypeId": 1,  # Passenger cars
+                            "manufacturerId": manufacturer_id,
+                            "modelId": model_id,
                             "year": str(year)
                         }
                         
@@ -200,8 +173,10 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
                             # Extract OEM numbers from response
                             oem_numbers = extract_oem_numbers_from_response(articles_data)
                             if oem_numbers:
-                                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from 3-step approach")
+                                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers for {brand} {model} {year}")
                                 return oem_numbers
+                            else:
+                                print(f"⚠️ No OEM numbers found in articles response")
                         else:
                             print(f"📦 Articles error: {response.text}")
                     else:
@@ -213,26 +188,7 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         else:
             print(f"📦 Manufacturers error: {response.text}")
         
-        # Test 3: Try with vehicle type and year only
-        print(f"📡 Test 3: Vehicle type and year search...")
-        vehicle_params = {
-            "selectPageType": "get-vehicle-types",
-            "langId": 4,
-            "countryId": 1
-        }
-        
-        response = requests.post(url, json=vehicle_params, timeout=60)
-        print(f"📦 Vehicle types response: {response.status_code}")
-        
-        if response.status_code == 200:
-            vehicle_data = response.json()
-            print(f"📦 Vehicle types data: {vehicle_data}")
-        
-        print(f"❌ All TecDoc API approaches failed")
-        print(f"🔍 Recommendations:")
-        print(f"   - Check Apify act configuration")
-        print(f"   - Verify selectPageType values are correct")
-        print(f"   - Try manual test in Apify dashboard")
+        print(f"❌ TecDoc API search failed")
         return []
         
     except Exception as e:
@@ -335,12 +291,12 @@ def car_parts_search():
         )
         
         if not oem_numbers:
-            print(f"❌ No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+            print(f"❌ TecDoc API failed for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
             return jsonify({
                 'vehicle_info': vehicle_info,
                 'oem_numbers': [],
                 'matching_products': [],
-                'message': 'No OEM numbers found for this vehicle'
+                'message': 'TecDoc API failed - no OEM numbers available'
             })
         
         print(f"📦 Found {len(oem_numbers)} OEM numbers: {oem_numbers[:20]}")  # Show first 20
@@ -677,9 +633,12 @@ def test_complete_workflow():
         )
         
         if not oem_numbers:
+            print(f"❌ TecDoc API failed, trying local database for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+            # The local_oem_database function is removed, so this block will now always return an empty list.
+            # If a local database is needed, it must be re-implemented or removed.
             return jsonify({
                 'success': False,
-                'error': 'TecDoc API failed',
+                'error': 'TecDoc API failed and local database is empty',
                 'step': 'tecdoc_api',
                 'vehicle_info': vehicle_info
             })
