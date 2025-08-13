@@ -91,53 +91,39 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
     print(f"🔍 Searching TecDoc API for {brand} {model} {year}")
     
     try:
-        # Use synchronous TecDoc API call via Apify
-        url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
+        # First, validate the API key and test basic connectivity
+        print(f"🔍 Validating TecDoc API key and connectivity...")
         
-        # Try completely different approaches to understand what's wrong
-        print(f"🔍 Testing TecDoc API connectivity...")
+        # Test 1: Check if API key is valid by testing a simple endpoint
+        print(f"📡 Test 1: API key validation...")
+        test_url = "https://api.apify.com/v2/users/me"
+        headers = {"Authorization": f"Bearer {TECDOC_API_KEY}"}
         
-        # Test 1: Minimal call with just basic parameters
-        print(f"📡 Test 1: Minimal API call...")
-        minimal_params = {
-            "selectPageType": "get-vehicle-types"
-        }
+        try:
+            response = requests.get(test_url, headers=headers, timeout=30)
+            print(f"📦 API key test response: {response.status_code}")
+            if response.status_code == 200:
+                user_data = response.json()
+                print(f"📦 API key valid - User: {user_data.get('name', 'Unknown')}")
+            else:
+                print(f"📦 API key test error: {response.text}")
+        except Exception as e:
+            print(f"📦 API key test exception: {e}")
         
-        response = requests.post(url, json=minimal_params, timeout=30)
-        print(f"📦 Test 1 response: {response.status_code}")
-        if response.status_code == 200:
-            print(f"📦 Test 1 data: {response.json()}")
-        else:
-            print(f"📦 Test 1 error: {response.text}")
-        
-        # Test 2: Try with different language/country
-        print(f"📡 Test 2: Different language/country...")
-        test2_params = {
-            "selectPageType": "get-vehicle-types",
-            "langId": 1,  # German instead of English
-            "countryId": 2  # Different country
-        }
-        
-        response = requests.post(url, json=test2_params, timeout=30)
-        print(f"📦 Test 2 response: {response.status_code}")
-        if response.status_code == 200:
-            print(f"📦 Test 2 data: {response.json()}")
-        else:
-            print(f"📦 Test 2 error: {response.text}")
-        
-        # Test 3: Try the original Apify approach that was working before
-        print(f"📡 Test 3: Original Apify approach...")
+        # Test 2: Try the original working Apify approach
+        print(f"📡 Test 2: Original Apify approach...")
+        original_url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         original_params = {
             "brand": brand,
             "model": model,
             "year": str(year)
         }
         
-        response = requests.post(url, json=original_params, timeout=60)
-        print(f"📦 Test 3 response: {response.status_code}")
+        response = requests.post(original_url, json=original_params, timeout=60)
+        print(f"📦 Original approach response: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
-            print(f"📦 Test 3 data: {data}")
+            print(f"📦 Original approach data: {data}")
             
             # Extract OEM numbers from response
             oem_numbers = []
@@ -167,22 +153,63 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
                 print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from original approach")
                 return oem_numbers
         else:
-            print(f"📦 Test 3 error: {response.text}")
+            print(f"📦 Original approach error: {response.text}")
         
-        # Test 4: Try with GET request instead of POST
-        print(f"📡 Test 4: GET request approach...")
+        # Test 3: Try alternative Apify endpoints
+        print(f"📡 Test 3: Alternative Apify endpoints...")
+        alternative_urls = [
+            f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/runs?token={TECDOC_API_KEY}",
+            f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/lastRun?token={TECDOC_API_KEY}",
+            f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc?token={TECDOC_API_KEY}"
+        ]
+        
+        for i, alt_url in enumerate(alternative_urls, 1):
+            print(f"📡 Test 3.{i}: Trying {alt_url}")
+            try:
+                response = requests.get(alt_url, timeout=30)
+                print(f"📦 Alternative {i} response: {response.status_code}")
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"📦 Alternative {i} data: {data}")
+                    break
+                else:
+                    print(f"📦 Alternative {i} error: {response.text}")
+            except Exception as e:
+                print(f"📦 Alternative {i} exception: {e}")
+        
+        # Test 4: Try with different HTTP method and parameters
+        print(f"📡 Test 4: Different HTTP method...")
         try:
-            get_url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}&selectPageType=get-vehicle-types"
-            response = requests.get(get_url, timeout=30)
-            print(f"📦 Test 4 response: {response.status_code}")
+            # Try GET request with query parameters
+            get_url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}&brand={brand}&model={model}&year={year}"
+            response = requests.get(get_url, timeout=60)
+            print(f"📦 GET request response: {response.status_code}")
             if response.status_code == 200:
-                print(f"📦 Test 4 data: {response.json()}")
+                data = response.json()
+                print(f"📦 GET request data: {data}")
+                
+                # Extract OEM numbers if any
+                oem_numbers = []
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and 'articles' in item:
+                            for article in item['articles']:
+                                if article.get('articleNo'):
+                                    oem_numbers.append(article['articleNo'])
+                
+                if oem_numbers:
+                    print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from GET request")
+                    return oem_numbers
             else:
-                print(f"📦 Test 4 error: {response.text}")
+                print(f"📦 GET request error: {response.text}")
         except Exception as e:
-            print(f"📦 Test 4 exception: {e}")
+            print(f"📦 GET request exception: {e}")
         
         print(f"❌ All TecDoc API tests failed - API may not be working as expected")
+        print(f"🔍 Recommendations:")
+        print(f"   - Check if TECDOC_API_KEY is valid and not expired")
+        print(f"   - Verify the Apify act is still available and working")
+        print(f"   - Try using the Apify dashboard to test the act manually")
         return []
         
     except Exception as e:
