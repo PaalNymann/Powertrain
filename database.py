@@ -10,12 +10,14 @@ Base = declarative_base()
 class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
-    id = Column(Integer, primary_key=True)
-    # Only include columns that actually exist in Railway database
-    title = Column(String(500), nullable=False)
-    handle = Column(String(500), nullable=False)
-    # Remove all metafield columns that don't exist
-    inventory_quantity = Column(Integer, default=0)
+    id = Column(String, primary_key=True)
+    title = Column(String)
+    handle = Column(String)
+    inventory_quantity = Column(Integer)
+    original_nummer_metafield = Column(String)  # Add this column for OEM matching
+    
+    def __repr__(self):
+        return f"<ShopifyProduct(id='{self.id}', title='{self.title}', original_nummer='{self.original_nummer_metafield}')>"
 
 def get_database_url():
     """Get database URL from environment or use SQLite for local development"""
@@ -41,113 +43,89 @@ def init_db():
         raise
 
 def search_products_by_oem(oem_number, include_number=False):
-    """Search for products by OEM number"""
-    if not oem_number:
-        print("❌ No OEM number provided for search")
-        return []
-    
+    """Search for products by OEM number using the original_nummer metafield"""
     session = SessionLocal()
     try:
-        print(f"🔍 Searching database for OEM: {oem_number}")
+        # Search in the original_nummer metafield for exact or partial matches
+        query = session.query(ShopifyProduct).filter(
+            ShopifyProduct.original_nummer_metafield.contains(oem_number)
+        )
         
-        # Since metafield columns don't exist in Railway database,
-        # we can only search by title and handle for now
-        # This is a temporary solution until we can sync the database structure
+        products = query.all()
         
-        # Check if database has any products
-        total_products = session.query(ShopifyProduct).count()
-        print(f"📊 Total products in database: {total_products}")
-        
-        if total_products == 0:
-            print("⚠️ Database is empty - no products to search")
+        if products:
+            print(f"🔍 Found {len(products)} products matching OEM: {oem_number}")
+            return [product_to_dict(product) for product in products]
+        else:
+            print(f"🔍 No products found for OEM: {oem_number}")
             return []
-        
-        # For now, return all products since we can't search by OEM
-        # This will be updated once we fix the database structure
-        products = session.query(ShopifyProduct).all()
-        print(f"🔍 Query returned {len(products)} products")
-        
-        # Convert to dictionary format with only existing fields
-        result = []
-        for product in products:
-            try:
-                product_dict = {
-                    'id': str(product.id),  # Use id as primary key
-                    'title': product.title or 'Unknown',
-                    'handle': product.handle or '',
-                    'inventory_quantity': product.inventory_quantity or 0
-                }
-                result.append(product_dict)
-            except Exception as e:
-                print(f"❌ Error converting product {getattr(product, 'id', 'unknown')} to dict: {e}")
-                continue
-        
-        print(f"🔍 Successfully converted {len(result)} products to dict format")
-        print(f"⚠️ Note: Cannot search by OEM since metafield columns don't exist in Railway database")
-        return result
-        
+            
     except Exception as e:
         print(f"❌ Error searching database: {e}")
-        import traceback
-        traceback.print_exc()
         return []
     finally:
         session.close()
 
 def update_shopify_cache(products_data):
-    """Update Shopify product cache in database"""
+    """Update local database cache with Shopify product data"""
     session = SessionLocal()
     try:
+        print(f"🔄 Updating Shopify cache with {len(products_data)} products...")
+        
+        updated_count = 0
+        created_count = 0
+        
         for product_data in products_data:
-            # Check if product exists by id (not product_id)
-            existing_product = session.query(ShopifyProduct).filter(
-                ShopifyProduct.id == int(product_data['id'])
-            ).first()
-            
-            if existing_product:
-                # Update existing product - only update fields that exist
-                existing_product.title = product_data.get('title', '')
-                existing_product.handle = product_data.get('handle', '')
-                # Note: metafield columns don't exist in Railway database
+            try:
+                # Check if product already exists
+                existing_product = session.query(ShopifyProduct).filter(
+                    ShopifyProduct.id == str(product_data.get('id'))
+                ).first()
                 
-                # Update inventory
-                if 'variants' in product_data and product_data['variants']:
-                    total_inventory = sum(
-                        int(variant.get('inventory_quantity', 0)) 
-                        for variant in product_data['variants']
-                    )
-                    existing_product.inventory_quantity = total_inventory
+                if existing_product:
+                    # Update existing product
+                    existing_product.title = product_data.get('title', '')
+                    existing_product.handle = product_data.get('handle', '')
+                    existing_product.inventory_quantity = product_data.get('inventory_quantity', 0)
                     
-            else:
-                # Create new product - only include fields that exist
-                new_product = ShopifyProduct(
-                    id=int(product_data.get('id', 0)),  # Use id as primary key
-                    title=product_data.get('title', ''),
-                    handle=product_data.get('handle', ''),
-                    # Note: metafield columns don't exist in Railway database
-                    inventory_quantity=0
-                )
-                
-                # Note: metafield columns don't exist in Railway database
-                # Cannot set metafields until database structure is fixed
-                
-                # Set inventory
-                if 'variants' in product_data and product_data['variants']:
-                    total_inventory = sum(
-                        int(variant.get('inventory_quantity', 0)) 
-                        for variant in product_data['variants']
+                    # Update original_nummer metafield if available
+                    if 'metafields' in product_data:
+                        for metafield in product_data['metafields']:
+                            if metafield.get('key') == 'original_nummer':
+                                existing_product.original_nummer_metafield = metafield.get('value', '')
+                                break
+                    
+                    updated_count += 1
+                else:
+                    # Create new product
+                    new_product = ShopifyProduct(
+                        id=str(product_data.get('id')),
+                        title=product_data.get('title', ''),
+                        handle=product_data.get('handle', ''),
+                        inventory_quantity=product_data.get('inventory_quantity', 0),
+                        original_nummer_metafield=''  # Initialize empty
                     )
-                    new_product.inventory_quantity = total_inventory
-                
-                session.add(new_product)
+                    
+                    # Set original_nummer metafield if available
+                    if 'metafields' in product_data:
+                        for metafield in product_data['metafields']:
+                            if metafield.get('key') == 'original_nummer':
+                                new_product.original_nummer_metafield = metafield.get('value', '')
+                                break
+                    
+                    session.add(new_product)
+                    created_count += 1
+                    
+            except Exception as e:
+                print(f"❌ Error processing product {product_data.get('id', 'unknown')}: {e}")
+                continue
         
         session.commit()
-        print(f"Updated cache with {len(products_data)} products")
+        print(f"✅ Cache update complete: {updated_count} updated, {created_count} created")
         
     except Exception as e:
+        print(f"❌ Error updating Shopify cache: {e}")
         session.rollback()
-        print(f"Error updating cache: {e}")
-        raise
     finally:
         session.close()
 

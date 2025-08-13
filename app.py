@@ -81,9 +81,9 @@ def extract_vehicle_info(vehicle_data):
 
 
 
-# Force Railway deployment - latest TecDoc API testing implementation
+# Force Railway deployment - implement correct TecDoc API approach
 def get_oem_numbers_from_tecdoc(brand, model, year):
-    """Get OEM numbers from TecDoc API via Apify"""
+    """Get OEM numbers from TecDoc API via Apify using correct endpoint format"""
     if not all([brand, model, year]):
         print(f"❌ Missing required parameters: brand={brand}, model={model}, year={year}")
         return []
@@ -91,131 +91,210 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
     print(f"🔍 Searching TecDoc API for {brand} {model} {year}")
     
     try:
-        # First, validate the API key and test basic connectivity
-        print(f"🔍 Validating TecDoc API key and connectivity...")
+        # Use synchronous TecDoc API call via Apify
+        url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         
-        # Test 1: Check if API key is valid by testing a simple endpoint
-        print(f"📡 Test 1: API key validation...")
-        test_url = "https://api.apify.com/v2/users/me"
-        headers = {"Authorization": f"Bearer {TECDOC_API_KEY}"}
+        print(f"🔍 Testing correct TecDoc API endpoints...")
         
-        try:
-            response = requests.get(test_url, headers=headers, timeout=30)
-            print(f"📦 API key test response: {response.status_code}")
-            if response.status_code == 200:
-                user_data = response.json()
-                print(f"📦 API key valid - User: {user_data.get('name', 'Unknown')}")
-            else:
-                print(f"📦 API key test error: {response.text}")
-        except Exception as e:
-            print(f"📦 API key test exception: {e}")
-        
-        # Test 2: Try the original working Apify approach
-        print(f"📡 Test 2: Original Apify approach...")
-        original_url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
-        original_params = {
-            "brand": brand,
-            "model": model,
-            "year": str(year)
+        # Test 1: Search by OEM number directly (most reliable)
+        print(f"📡 Test 1: Direct OEM search for {brand} {model} {year}")
+        oem_search_params = {
+            "selectPageType": "search-articles-by-article-oem-number",
+            "langId": 4,
+            "countryId": 1,
+            "searchTerm": f"{brand} {model} {year}"
         }
         
-        response = requests.post(original_url, json=original_params, timeout=60)
-        print(f"📦 Original approach response: {response.status_code}")
+        response = requests.post(url, json=oem_search_params, timeout=60)
+        print(f"📦 Test 1 response: {response.status_code}")
+        
         if response.status_code == 200:
             data = response.json()
-            print(f"📦 Original approach data: {data}")
+            print(f"📦 Test 1 data: {data}")
             
             # Extract OEM numbers from response
-            oem_numbers = []
-            
-            # Handle different response formats
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict) and 'articles' in item:
-                        for article in item['articles']:
-                            if article.get('articleNo'):
-                                oem_numbers.append(article['articleNo'])
-            elif isinstance(data, dict):
-                if 'articles' in data:
-                    for article in data['articles']:
-                        if article.get('articleNo'):
-                            oem_numbers.append(article['articleNo'])
-                elif 'parts' in data:
-                    for part in data['parts']:
-                        if part.get('oem_number'):
-                            oem_numbers.append(part['oem_number'])
-                elif 'items' in data:
-                    for item in data['items']:
-                        if item.get('oem') or item.get('partNumber'):
-                            oem_numbers.append(item.get('oem') or item.get('partNumber'))
-            
+            oem_numbers = extract_oem_numbers_from_response(data)
             if oem_numbers:
-                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from original approach")
+                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from direct search")
                 return oem_numbers
         else:
-            print(f"📦 Original approach error: {response.text}")
+            print(f"📦 Test 1 error: {response.text}")
         
-        # Test 3: Try alternative Apify endpoints
-        print(f"📡 Test 3: Alternative Apify endpoints...")
-        alternative_urls = [
-            f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/runs?token={TECDOC_API_KEY}",
-            f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/lastRun?token={TECDOC_API_KEY}",
-            f"https://api.apify.com/v2/acts/making-data-meaningful~tecdoc?token={TECDOC_API_KEY}"
-        ]
+        # Test 2: Get manufacturers first, then models, then articles
+        print(f"📡 Test 2: 3-step approach with manufacturer/model lookup")
         
-        for i, alt_url in enumerate(alternative_urls, 1):
-            print(f"📡 Test 3.{i}: Trying {alt_url}")
-            try:
-                response = requests.get(alt_url, timeout=30)
-                print(f"📦 Alternative {i} response: {response.status_code}")
+        # Step 2a: Get manufacturers for passenger cars
+        print(f"📡 Step 2a: Getting manufacturers...")
+        manufacturer_params = {
+            "selectPageType": "get-manufacturers-by-type-id-lang-id-country-id",
+            "langId": 4,
+            "countryId": 1,
+            "vehicleTypeId": 1
+        }
+        
+        response = requests.post(url, json=manufacturer_params, timeout=60)
+        print(f"📦 Manufacturers response: {response.status_code}")
+        
+        if response.status_code == 200:
+            manufacturers_data = response.json()
+            print(f"📦 Manufacturers data: {manufacturers_data}")
+            
+            # Find VOLVO manufacturer ID
+            volvo_id = None
+            if isinstance(manufacturers_data, list):
+                for mfr in manufacturers_data:
+                    if isinstance(mfr, dict) and mfr.get('name', '').upper() == brand.upper():
+                        volvo_id = mfr.get('id')
+                        break
+            
+            if volvo_id:
+                print(f"✅ Found {brand} manufacturer ID: {volvo_id}")
+                
+                # Step 2b: Get models for VOLVO
+                print(f"📡 Step 2b: Getting models for {brand}...")
+                model_params = {
+                    "selectPageType": "get-models",
+                    "langId": 4,
+                    "countryId": 1,
+                    "vehicleTypeId": 1,
+                    "manufacturerId": volvo_id
+                }
+                
+                response = requests.post(url, json=model_params, timeout=60)
+                print(f"📦 Models response: {response.status_code}")
+                
                 if response.status_code == 200:
-                    data = response.json()
-                    print(f"📦 Alternative {i} data: {data}")
-                    break
+                    models_data = response.json()
+                    print(f"📦 Models data: {models_data}")
+                    
+                    # Find V70 model ID
+                    v70_id = None
+                    if isinstance(models_data, list):
+                        for mdl in models_data:
+                            if isinstance(mdl, dict) and mdl.get('name', '').upper() == model.upper():
+                                v70_id = mdl.get('id')
+                                break
+                    
+                    if v70_id:
+                        print(f"✅ Found {model} model ID: {v70_id}")
+                        
+                        # Step 2c: Get articles for VOLVO V70 2006
+                        print(f"📡 Step 2c: Getting articles for {brand} {model} {year}...")
+                        article_params = {
+                            "selectPageType": "get-article-list",
+                            "langId": 4,
+                            "countryId": 1,
+                            "vehicleTypeId": 1,
+                            "manufacturerId": volvo_id,
+                            "modelId": v70_id,
+                            "year": str(year)
+                        }
+                        
+                        response = requests.post(url, json=article_params, timeout=60)
+                        print(f"📦 Articles response: {response.status_code}")
+                        
+                        if response.status_code == 200:
+                            articles_data = response.json()
+                            print(f"📦 Articles data: {articles_data}")
+                            
+                            # Extract OEM numbers from response
+                            oem_numbers = extract_oem_numbers_from_response(articles_data)
+                            if oem_numbers:
+                                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from 3-step approach")
+                                return oem_numbers
+                        else:
+                            print(f"📦 Articles error: {response.text}")
+                    else:
+                        print(f"❌ Could not find {model} model ID")
                 else:
-                    print(f"📦 Alternative {i} error: {response.text}")
-            except Exception as e:
-                print(f"📦 Alternative {i} exception: {e}")
-        
-        # Test 4: Try with different HTTP method and parameters
-        print(f"📡 Test 4: Different HTTP method...")
-        try:
-            # Try GET request with query parameters
-            get_url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}&brand={brand}&model={model}&year={year}"
-            response = requests.get(get_url, timeout=60)
-            print(f"📦 GET request response: {response.status_code}")
-            if response.status_code == 200:
-                data = response.json()
-                print(f"📦 GET request data: {data}")
-                
-                # Extract OEM numbers if any
-                oem_numbers = []
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict) and 'articles' in item:
-                            for article in item['articles']:
-                                if article.get('articleNo'):
-                                    oem_numbers.append(article['articleNo'])
-                
-                if oem_numbers:
-                    print(f"✅ Success! Found {len(oem_numbers)} OEM numbers from GET request")
-                    return oem_numbers
+                    print(f"📦 Models error: {response.text}")
             else:
-                print(f"📦 GET request error: {response.text}")
-        except Exception as e:
-            print(f"📦 GET request exception: {e}")
+                print(f"❌ Could not find {brand} manufacturer ID")
+        else:
+            print(f"📦 Manufacturers error: {response.text}")
         
-        print(f"❌ All TecDoc API tests failed - API may not be working as expected")
+        # Test 3: Try with vehicle type and year only
+        print(f"📡 Test 3: Vehicle type and year search...")
+        vehicle_params = {
+            "selectPageType": "get-vehicle-types",
+            "langId": 4,
+            "countryId": 1
+        }
+        
+        response = requests.post(url, json=vehicle_params, timeout=60)
+        print(f"📦 Vehicle types response: {response.status_code}")
+        
+        if response.status_code == 200:
+            vehicle_data = response.json()
+            print(f"📦 Vehicle types data: {vehicle_data}")
+        
+        print(f"❌ All TecDoc API approaches failed")
         print(f"🔍 Recommendations:")
-        print(f"   - Check if TECDOC_API_KEY is valid and not expired")
-        print(f"   - Verify the Apify act is still available and working")
-        print(f"   - Try using the Apify dashboard to test the act manually")
+        print(f"   - Check Apify act configuration")
+        print(f"   - Verify selectPageType values are correct")
+        print(f"   - Try manual test in Apify dashboard")
         return []
         
     except Exception as e:
         print(f"❌ Error calling TecDoc API: {e}")
-        print(f"⚠️ TecDoc API call failed - returning empty list")
         return []
+
+def extract_oem_numbers_from_response(data):
+    """Extract OEM numbers from various TecDoc API response formats"""
+    oem_numbers = []
+    
+    if not data:
+        return oem_numbers
+    
+    # Handle different response formats
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                # Check for articles array
+                if 'articles' in item:
+                    for article in item['articles']:
+                        if article.get('articleNo'):
+                            oem_numbers.append(article['articleNo'])
+                # Check for parts array
+                elif 'parts' in item:
+                    for part in item['parts']:
+                        if part.get('oem_number'):
+                            oem_numbers.append(part['oem_number'])
+                # Check for items array
+                elif 'items' in item:
+                    for item_data in item['items']:
+                        if item_data.get('oem') or item_data.get('partNumber'):
+                            oem_numbers.append(item_data.get('oem') or item_data.get('partNumber'))
+                # Check for direct OEM fields
+                elif item.get('articleNo'):
+                    oem_numbers.append(item['articleNo'])
+                elif item.get('oem_number'):
+                    oem_numbers.append(item['oem_number'])
+    
+    elif isinstance(data, dict):
+        # Check for articles array
+        if 'articles' in data:
+            for article in data['articles']:
+                if article.get('articleNo'):
+                    oem_numbers.append(article['articleNo'])
+        # Check for parts array
+        elif 'parts' in data:
+            for part in data['parts']:
+                if part.get('oem_number'):
+                    oem_numbers.append(part['oem_number'])
+        # Check for items array
+        elif 'items' in data:
+            for item in data['items']:
+                if item.get('oem') or item.get('partNumber'):
+                    oem_numbers.append(item.get('oem') or item.get('partNumber'))
+        # Check for direct OEM fields
+        elif data.get('articleNo'):
+            oem_numbers.append(data['articleNo'])
+        elif data.get('oem_number'):
+            oem_numbers.append(data['oem_number'])
+    
+    # Remove duplicates and return
+    return list(set(oem_numbers))
 
 @app.route('/api/car_parts_search')
 def car_parts_search():
@@ -248,47 +327,42 @@ def car_parts_search():
         
         # Step 2: Get OEM numbers from TecDoc API
         print(f"🔍 Step 2: Getting OEM numbers from TecDoc API for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
-        try:
-            oem_numbers = get_oem_numbers_from_tecdoc(
-                vehicle_info['make'], 
-                vehicle_info['model'], 
-                vehicle_info['year']
-            )
-        except Exception as e:
-            print(f"❌ Error getting OEM numbers from TecDoc: {e}")
-            oem_numbers = []
+        
+        oem_numbers = get_oem_numbers_from_tecdoc(
+            vehicle_info['make'], 
+            vehicle_info['model'], 
+            vehicle_info['year']
+        )
         
         if not oem_numbers:
-            print(f"📦 No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+            print(f"❌ No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
             return jsonify({
                 'vehicle_info': vehicle_info,
                 'oem_numbers': [],
-                'products': [],
-                'message': f'No parts found for {vehicle_info["make"]} {vehicle_info["model"]} {vehicle_info["year"]}'
+                'matching_products': [],
+                'message': 'No OEM numbers found for this vehicle'
             })
         
-        print(f"📦 Found {len(oem_numbers)} OEM numbers: {oem_numbers}")
+        print(f"📦 Found {len(oem_numbers)} OEM numbers: {oem_numbers[:20]}")  # Show first 20
         
         # Step 3: Search Shopify products for OEM numbers
         print(f"🛍️ Step 3: Searching Shopify products for OEM numbers")
-        all_products = []
+        
+        all_matching_products = []
         updated_metafields = 0
         
         for oem_number in oem_numbers:
             try:
-                print(f"🔍 Searching for OEM number: {oem_number}")
-                products = search_products_by_oem(oem_number, include_number=False)
-                print(f"🔍 Found {len(products) if products else 0} products for OEM: {oem_number}")
+                matching_products = search_products_by_oem(oem_number)
                 
-                if products:
-                    all_products.extend(products)
+                if matching_products:
+                    print(f"🔍 Found {len(matching_products)} products for OEM: {oem_number}")
                     
-                    # Update metafields for products that don't have OEM numbers set
-                    for product in products:
-                        # Since metafield columns don't exist in Railway database,
-                        # we cannot update OEM metafields
-                        # Just add the product to results without updating metafields
-                        pass
+                    # Add OEM number to each product for reference
+                    for product in matching_products:
+                        product['matched_oem'] = oem_number
+                    
+                    all_matching_products.extend(matching_products)
                 else:
                     print(f"🔍 No products found for OEM: {oem_number}")
                     
@@ -296,24 +370,23 @@ def car_parts_search():
                 print(f"❌ Error searching for OEM {oem_number}: {e}")
                 continue
         
-        # Remove duplicates
-        unique_products = []
-        seen_ids = set()
-        for product in all_products:
-            if product['id'] not in seen_ids:
-                unique_products.append(product)
-                seen_ids.add(product['id'])
+        # Remove duplicates based on product ID
+        unique_products = {}
+        for product in all_matching_products:
+            product_id = product.get('id')
+            if product_id and product_id not in unique_products:
+                unique_products[product_id] = product
         
-        print(f"✅ Found {len(unique_products)} matching Shopify products")
-        # Since metafield columns don't exist, we cannot update OEM metafields
-        print(f"⚠️ OEM metafield updates disabled - metafield columns don't exist in Railway database")
+        final_products = list(unique_products.values())
+        
+        print(f"✅ Found {len(final_products)} unique matching Shopify products")
         
         return jsonify({
             'vehicle_info': vehicle_info,
             'oem_numbers': oem_numbers,
-            'products': unique_products,
-            'metafields_updated': 0,  # Cannot update metafields
-            'message': f'Found {len(unique_products)} products for {vehicle_info["make"]} {vehicle_info["model"]} {vehicle_info["year"]}'
+            'matching_products': final_products,
+            'total_matches': len(final_products),
+            'metafields_updated': updated_metafields
         })
         
     except Exception as e:
@@ -533,24 +606,33 @@ def update_oem_metafields():
 
 @app.route('/api/metafields/stats')
 def metafields_stats():
-    """Get statistics about metafields in the database"""
+    """Get statistics on OEM metafield coverage in database"""
     try:
         from database import SessionLocal, ShopifyProduct
-        
         session = SessionLocal()
+        
+        # Get total products count
         total_products = session.query(ShopifyProduct).count()
         
-        # Since metafield columns don't exist in Railway database,
-        # we can only return basic stats
-        session.close()
+        # Get products with original_nummer metafield
+        products_with_oem = session.query(ShopifyProduct).filter(
+            ShopifyProduct.original_nummer_metafield.isnot(None),
+            ShopifyProduct.original_nummer_metafield != ''
+        ).count()
         
-        return jsonify({
+        # Calculate coverage percentage
+        coverage_percentage = (products_with_oem / total_products * 100) if total_products > 0 else 0
+        
+        stats = {
             'total_products': total_products,
-            'products_with_oem': 0,  # Cannot check since oem_metafield column doesn't exist
-            'products_without_oem': total_products,  # All products lack OEM info
-            'oem_coverage_percentage': 0.0,  # 0% coverage since no OEM data
-            'note': 'Metafield columns do not exist in Railway database - OEM search disabled'
-        })
+            'products_with_original_nummer': products_with_oem,
+            'coverage_percentage': round(coverage_percentage, 2),
+            'metafield_type': 'original_nummer',
+            'status': 'active' if total_products > 0 else 'no_products'
+        }
+        
+        session.close()
+        return jsonify(stats)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
