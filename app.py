@@ -81,6 +81,7 @@ def extract_vehicle_info(vehicle_data):
 
 
 
+# Force Railway deployment - latest TecDoc API testing implementation
 def get_oem_numbers_from_tecdoc(brand, model, year):
     """Get OEM numbers from TecDoc API via Apify"""
     if not all([brand, model, year]):
