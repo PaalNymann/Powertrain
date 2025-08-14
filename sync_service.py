@@ -52,7 +52,20 @@ def fetch_all_rackbeat() -> list[dict]:
     return all_prod
 
 def filter_keep(p:dict) -> bool:
-    return p.get("available_quantity",0) > 0 and p.get("sales_price",0) > 0
+    # Check basic requirements: stock and price
+    if not (p.get("available_quantity",0) >= 1 and p.get("sales_price",0) > 0):
+        return False
+    
+    # Check product group: only Drivaksel and Mellomaksel
+    group_name = p.get("group", {}).get("name", "")
+    if group_name not in ["Drivaksel", "Mellomaksel"]:
+        return False
+    
+    # Note: i_nettbutikk field not yet available in Rackbeat API
+    # Customer will need to configure this field in Rackbeat for future filtering
+    print(f"✅ Product '{p.get('name', 'N/A')[:30]}' passed filters - Group: {group_name}")
+    
+    return True
 
 
 
@@ -69,15 +82,37 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
     }
     
     # --- metafields (OEM fields for TecDoc matching + number for free text search)
-    # For now, we'll create empty metafields that can be updated later
+    # Extract OEM numbers from description or other fields if available
+    description = p.get("description", "")
+    
+    # Try to extract OEM numbers from description using regex patterns
+    import re
+    oem_numbers = []
+    if description:
+        # Common OEM patterns
+        patterns = [
+            r'\b\d{6,10}\b',           # 6-10 digit numbers like 8252034
+            r'\b[A-Z]{2,4}\d{3,8}\b',  # Patterns like BMW123456
+            r'\b[A-Z0-9]{6,12}\b',     # Alphanumeric codes
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, description)
+            oem_numbers.extend(matches)
+    
+    # Remove duplicates and join with commas
+    unique_oems = list(set(oem_numbers))
+    oem_string = ", ".join(unique_oems) if unique_oems else ""
+    
     fields = {
         "number":                p.get("number", ""),  # For free text search (unique customer number)
-        "original_nummer":       "N/A",  # For TecDoc matching - will be updated later
-        "tirsan_varenummer":     "N/A",  # For TecDoc matching - will be updated later
-        "odm_varenummer":        "N/A",  # For TecDoc matching - will be updated later
-        "ims_varenummer":        "N/A",  # For TecDoc matching - will be updated later
-        "welte_varenummer":      "N/A",  # For TecDoc matching - will be updated later
-        "bakkeren_varenummer":   "N/A",  # For TecDoc matching - will be updated later
+        "original_nummer":       oem_string,  # Extracted OEM numbers from description
+        "product_group":         p.get("group", {}).get("name", ""),  # Product group for filtering
+        "i_nettbutikk":          "ja",  # All synced products should be in webshop
+        "tirsan_varenummer":     "",  # Will be populated when field is identified
+        "odm_varenummer":        "",  # Will be populated when field is identified
+        "ims_varenummer":        "",  # Will be populated when field is identified
+        "welte_varenummer":      "",  # Will be populated when field is identified
+        "bakkeren_varenummer":   "",  # Will be populated when field is identified
     }
     metafields = [
         {
