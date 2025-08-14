@@ -29,6 +29,7 @@ class ShopifyProduct(Base):
     sku = Column(String)
     price = Column(String)  # Using String to match Railway's double precision
     inventory_quantity = Column(Integer)
+    product_type = Column(String)  # Shopify category: "Drivaksel" or "Mellomaksel"
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
     
