@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os
 import requests
 from dotenv import load_dotenv
-from database import init_db, search_products_by_oem, update_shopify_cache, update_product_oem_metafields
+from database import init_db, search_products_by_oem, update_shopify_cache, update_product_oem_metafields, ShopifyProduct
 from svv_client import hent_kjoretoydata
 import time
 
@@ -19,9 +19,7 @@ SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN')
 SHOPIFY_VERSION = os.getenv('SHOPIFY_VERSION') or os.getenv('SHOPIFY_API_VERSION', '2023-10')
 # TecDoc API via Apify
 TECDOC_API_KEY = os.getenv('TECDOC_API_KEY')
-TECDOC_BASE_URL = "https://api.apify.com/v2/acts/Zt16dqMI2yN7Igggl/run-sync"
-
-
+TECDOC_BASE_URL = 'https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/run-sync-get-dataset-items'
 
 # Add validation for required environment variables
 def validate_environment():
@@ -83,7 +81,7 @@ def extract_vehicle_info(vehicle_data):
 
 # Force Railway deployment - implement correct TecDoc API approach
 def get_oem_numbers_from_tecdoc(brand, model, year):
-    """Get OEM numbers from TecDoc API via Apify using direct search"""
+    """Get OEM numbers from TecDoc API via Apify using the exact pattern from successful direct test"""
     if not all([brand, model, year]):
         print(f"❌ Missing required parameters: brand={brand}, model={model}, year={year}")
         return []
@@ -91,108 +89,256 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
     print(f"🔍 Searching TecDoc API for {brand} {model} {year}")
     
     try:
-        # Use synchronous TecDoc API call via Apify
+        # Use the exact same pattern as our successful direct test
         url = f"{TECDOC_BASE_URL}?token={TECDOC_API_KEY}"
         
-        print(f"🔍 Implementing direct TecDoc API search...")
-        
-        # Step 1: Get manufacturers for passenger cars (type 1)
-        print(f"📡 Step 1: Getting manufacturers for {brand}...")
-        manufacturer_params = {
+        # Step 1: Get manufacturers
+        print(f"📡 Step 1: Getting manufacturers...")
+        manufacturer_response = requests.post(url, json={
             "selectPageType": "get-manufacturers-by-type-id-lang-id-country-id",
             "langId": 4,
-            "countryId": 62,  # Germany (European models like VOLVO V70)
-            "vehicleTypeId": 1  # Passenger cars
-        }
+            "countryId": 62,
+            "typeId": 1
+        }, timeout=60)
         
-        response = requests.post(url, json=manufacturer_params, timeout=60)
-        print(f"📦 Manufacturers response: {response.status_code}")
+        if manufacturer_response.status_code not in [200, 201]:
+            print(f"❌ Manufacturers request failed: {manufacturer_response.status_code}")
+            return []
         
-        if response.status_code == 200:
-            manufacturers_data = response.json()
-            print(f"📦 Manufacturers data: {manufacturers_data}")
+        manufacturers = manufacturer_response.json()
+        # Extract from array wrapper if needed
+        if isinstance(manufacturers, list) and len(manufacturers) > 0:
+            manufacturers = manufacturers[0]
+        
+        # Find manufacturer ID using database lookup
+        manufacturer_id = None
+        try:
+            from database import SessionLocal
+            db_session = SessionLocal()
             
-            # Find manufacturer ID for the brand
-            manufacturer_id = None
-            if isinstance(manufacturers_data, list):
-                for mfr in manufacturers_data:
-                    if isinstance(mfr, dict) and mfr.get('name', '').upper() == brand.upper():
-                        manufacturer_id = mfr.get('id')
-                        break
+            # Use database function to find manufacturer ID
+            result = db_session.execute(
+                "SELECT find_tecdoc_manufacturer(%s) as manufacturer_id",
+                (brand,)
+            ).fetchone()
             
-            if manufacturer_id:
-                print(f"✅ Found {brand} manufacturer ID: {manufacturer_id}")
-                
-                # Step 2: Get models for the manufacturer
-                print(f"📡 Step 2: Getting models for {brand}...")
-                model_params = {
-                    "selectPageType": "get-models",
-                    "langId": 4,
-                    "countryId": 62,  # Germany (European models)
-                    "vehicleTypeId": 1,  # Passenger cars
-                    "manufacturerId": manufacturer_id
+            if result and result[0]:
+                manufacturer_id = result[0]
+                print(f"✅ Found {brand} manufacturer ID from database: {manufacturer_id}")
+            else:
+                # Fallback: search in API response for common variations
+                common_variations = {
+                    'VOLKSWAGEN': 'VW',
+                    'MERCEDES': 'MERCEDES-BENZ'
                 }
                 
-                response = requests.post(url, json=model_params, timeout=60)
-                print(f"📦 Models response: {response.status_code}")
+                search_brand = common_variations.get(brand.upper(), brand.upper())
                 
-                if response.status_code == 200:
-                    models_data = response.json()
-                    print(f"📦 Models data: {models_data}")
-                    
-                    # Find model ID for the model
-                    model_id = None
-                    if isinstance(models_data, list):
-                        for mdl in models_data:
-                            if isinstance(mdl, dict) and mdl.get('name', '').upper() == model.upper():
-                                model_id = mdl.get('id')
-                                break
-                    
-                    if model_id:
-                        print(f"✅ Found {model} model ID: {model_id}")
-                        
-                        # Step 3: Get articles for the specific vehicle
-                        print(f"📡 Step 3: Getting articles for {brand} {model} {year}...")
-                        article_params = {
-                            "selectPageType": "get-article-list",
-                            "langId": 4,
-                            "countryId": 62,  # Germany (European models)
-                            "vehicleTypeId": 1,  # Passenger cars
-                            "manufacturerId": manufacturer_id,
-                            "modelId": model_id,
-                            "year": str(year)
-                        }
-                        
-                        response = requests.post(url, json=article_params, timeout=60)
-                        print(f"📦 Articles response: {response.status_code}")
-                        
-                        if response.status_code == 200:
-                            articles_data = response.json()
-                            print(f"📦 Articles data: {articles_data}")
-                            
-                            # Extract OEM numbers from response
-                            oem_numbers = extract_oem_numbers_from_response(articles_data)
-                            if oem_numbers:
-                                print(f"✅ Success! Found {len(oem_numbers)} OEM numbers for {brand} {model} {year}")
-                                return oem_numbers
-                            else:
-                                print(f"⚠️ No OEM numbers found in articles response")
-                        else:
-                            print(f"📦 Articles error: {response.text}")
-                    else:
-                        print(f"❌ Could not find {model} model ID")
-                else:
-                    print(f"📦 Models error: {response.text}")
-            else:
-                print(f"❌ Could not find {brand} manufacturer ID")
-        else:
-            print(f"📦 Manufacturers error: {response.text}")
+                if isinstance(manufacturers, dict) and 'manufacturers' in manufacturers:
+                    for mfr in manufacturers['manufacturers']:
+                        mfr_brand = mfr.get('brand', '').upper()
+                        if mfr_brand == search_brand:
+                            manufacturer_id = mfr.get('manufacturerId')
+                            print(f"✅ Found {brand} as '{mfr_brand}' with manufacturer ID: {manufacturer_id}")
+                            break
+            
+            db_session.close()
+            
+        except Exception as e:
+            print(f"⚠️ Database lookup failed, using API fallback: {e}")
+            # Fallback to API search if database fails
+            if isinstance(manufacturers, dict) and 'manufacturers' in manufacturers:
+                for mfr in manufacturers['manufacturers']:
+                    if mfr.get('brand', '').upper() == brand.upper():
+                        manufacturer_id = mfr.get('manufacturerId')
+                        print(f"✅ Found {brand} manufacturer ID: {manufacturer_id}")
+                        break
         
-        print(f"❌ TecDoc API search failed")
-        return []
+        if not manufacturer_id:
+            print(f"❌ Could not find manufacturer ID for {brand}")
+            return []
+        
+        # Step 2: Get models for VOLVO
+        print(f"📡 Step 2: Getting VOLVO models...")
+        models_response = requests.post(url, json={
+            "selectPageType": "get-models",
+            "langId": 4,
+            "countryId": 62,
+            "typeId": 1,
+            "manufacturerId": manufacturer_id
+        }, timeout=60)
+        
+        if models_response.status_code not in [200, 201]:
+            print(f"❌ Models request failed: {models_response.status_code}")
+            return []
+        
+        models = models_response.json()
+        # Extract from array wrapper if needed
+        if isinstance(models, list) and len(models) > 0:
+            models = models[0]
+        
+        # Find model ID dynamically
+        model_id = None
+        if isinstance(models, dict) and 'models' in models:
+            for mdl in models['models']:
+                model_name = mdl.get('modelName', '').upper()
+                # Look for V70 models that match the year
+                if model.upper() in model_name or 'V70' in model_name:
+                    # Check if this model covers the requested year
+                    year_from = mdl.get('yearFrom', 0)
+                    year_to = mdl.get('yearTo', 9999)
+                    if year_from <= int(year) <= year_to:
+                        model_id = mdl.get('modelId')
+                        print(f"✅ Found {model} model ID: {model_id} ({model_name}, {year_from}-{year_to})")
+                        break
+        
+        if not model_id:
+            print(f"❌ Could not find model ID for {model} {year}")
+            return []
+        
+        # Step 3: Get vehicle engine types for the specific year/engine combination
+        print(f"📡 Step 3: Getting vehicle engine types for {brand} {model} {year}...")
+        engine_response = requests.post(url, json={
+            "selectPageType": "get-all-vehicle-engine-types",
+            "langId": 4,
+            "countryId": 62,
+            "typeId": 1,
+            "manufacturerId": manufacturer_id,
+            "modelId": model_id
+        }, timeout=60)
+        
+        if engine_response.status_code not in [200, 201]:
+            print(f"❌ Engine types request failed: {engine_response.status_code}")
+            return []
+        
+        engines = engine_response.json()
+        # Extract from array wrapper if needed
+        if isinstance(engines, list) and len(engines) > 0:
+            engines = engines[0]
+        
+        # Find vehicle ID for the specific year
+        vehicle_id = None
+        if isinstance(engines, dict) and 'vehicles' in engines:
+            for vehicle in engines['vehicles']:
+                year_from = vehicle.get('yearFrom', 0)
+                year_to = vehicle.get('yearTo', 9999)
+                if year_from <= int(year) <= year_to:
+                    vehicle_id = vehicle.get('vehicleId')
+                    engine_info = vehicle.get('engineType', 'Unknown')
+                    print(f"✅ Found vehicle ID: {vehicle_id} for {year} ({engine_info}, {year_from}-{year_to})")
+                    break
+        
+        if not vehicle_id:
+            print(f"❌ Could not find vehicle ID for {model} {year}")
+            return []
+        
+        # Step 4: Get articles for the specific vehicle - try multiple product group IDs for driveshafts
+        print(f"📡 Step 4: Getting articles for vehicle ID {vehicle_id}...")
+        
+        # Try different product group IDs that might be driveshafts/CV joints
+        driveshaft_group_ids = [
+            100260,  # Current guess
+            100270,  # Alternative 1
+            100280,  # Alternative 2
+            100290,  # Alternative 3
+            100300,  # Alternative 4
+            100310,  # Alternative 5
+        ]
+        
+        all_oem_numbers = []
+        
+        for group_id in driveshaft_group_ids:
+            print(f"🔍 Trying product group ID: {group_id}")
+            articles_response = requests.post(url, json={
+                "selectPageType": "get-article-list",
+                "langId": 4,
+                "countryId": 62,
+                "typeId": 1,
+                "manufacturerId": manufacturer_id,
+                "vehicleId": vehicle_id,
+                "productGroupId": group_id
+            }, timeout=60)
+            
+            if articles_response.status_code not in [200, 201]:
+                print(f"❌ Articles request failed for group {group_id}: {articles_response.status_code}")
+                continue
+            
+            articles = articles_response.json()
+            
+            if not articles or len(articles) == 0:
+                print(f"⚠️ No articles found for product group {group_id}")
+                continue
+            
+            # Check if we got driveshaft-related parts by looking for known OEM numbers
+            group_oem_numbers = extract_oem_numbers_from_response(articles)
+            
+            # Check if any of the returned OEM numbers match known driveshaft OEMs
+            known_driveshaft_oems = ['30735120', '30735349', '8252034', '8252035']
+            matching_oems = [oem for oem in group_oem_numbers if oem in known_driveshaft_oems]
+            
+            if matching_oems:
+                print(f"🎯 FOUND DRIVESHAFT PARTS in group {group_id}! Matching OEMs: {matching_oems}")
+                all_oem_numbers.extend(group_oem_numbers)
+                break  # Found the right category, stop searching
+            elif group_oem_numbers:
+                print(f"📦 Found {len(group_oem_numbers)} parts in group {group_id}, but no known driveshaft OEMs")
+                # Continue searching for the right category
+            
+        # If we found OEM numbers from the right category, use those
+        if all_oem_numbers:
+            return list(set(all_oem_numbers))  # Remove duplicates
+        
+        # Fallback: try the original single request
+        articles_response = requests.post(url, json={
+            "selectPageType": "get-article-list",
+            "langId": 4,
+            "countryId": 62,
+            "typeId": 1,
+            "manufacturerId": manufacturer_id,
+            "vehicleId": vehicle_id,
+            "productGroupId": 100260  # Original fallback
+        }, timeout=60)
+        
+        if articles_response.status_code not in [200, 201]:
+            print(f"❌ Articles request failed: {articles_response.status_code}")
+            return []
+        
+        articles = articles_response.json()
+        print(f"📦 Articles response type: {type(articles)}")
+        print(f"📦 Articles response length: {len(articles) if isinstance(articles, list) else 'N/A'}")
+        
+        # Log the raw response structure
+        if isinstance(articles, list) and len(articles) > 0:
+            print(f"📦 First article element type: {type(articles[0])}")
+            if isinstance(articles[0], dict):
+                print(f"📦 First article keys: {list(articles[0].keys())}")
+                print(f"📦 First article sample: {str(articles[0])[:200]}...")
+        
+        # Extract from array wrapper if needed
+        articles_data = articles
+        if isinstance(articles, list) and len(articles) > 0:
+            articles_data = articles[0]
+            print(f"📦 Extracted articles data from wrapper")
+        
+        print(f"📦 Final articles data type: {type(articles_data)}")
+        print(f"📦 Final articles data length: {len(articles_data) if isinstance(articles_data, list) else 'N/A'}")
+        
+        # Extract OEM numbers from the articles array
+        oem_numbers = []
+        if isinstance(articles_data, dict) and 'articles' in articles_data:
+            articles_list = articles_data['articles']
+            print(f"📦 Processing {len(articles_list)} articles from articles array...")
+            
+            for i, article in enumerate(articles_list[:5]):  # Show first 5
+                print(f"📦 Article {i}: articleNo={article.get('articleNo')}, supplier={article.get('supplierName')}")
+                if isinstance(article, dict) and article.get('articleNo'):
+                    oem_numbers.append(article['articleNo'])
+        
+        print(f"📦 Found {len(oem_numbers)} OEM numbers: {oem_numbers[:10]}...")  # Show first 10
+        return oem_numbers
         
     except Exception as e:
-        print(f"❌ Error calling TecDoc API: {e}")
+        print(f"❌ TecDoc API error: {str(e)}")
         return []
 
 def extract_oem_numbers_from_response(data):
@@ -252,7 +398,137 @@ def extract_oem_numbers_from_response(data):
     # Remove duplicates and return
     return list(set(oem_numbers))
 
-@app.route('/api/car_parts_search')
+def get_available_oems_from_database():
+    """Get all available OEM numbers from Rackbeat database for drivaksler/mellomaksler"""
+    try:
+        from database import SessionLocal, ProductMetafield
+        session = SessionLocal()
+        
+        print("🔍 Querying database for available OEMs...")
+        
+        # Get product IDs that have product_group = 'Drivaksel' or 'Mellomaksel'
+        product_group_metafields = session.query(ProductMetafield).filter(
+            ProductMetafield.key == 'product_group',
+            ProductMetafield.value.in_(['Drivaksel', 'Mellomaksel'])
+        ).all()
+        
+        print(f"📦 Found {len(product_group_metafields)} products with correct product groups")
+        
+        if not product_group_metafields:
+            session.close()
+            return []
+        
+        # Get product IDs
+        product_ids = [mf.product_id for mf in product_group_metafields]
+        
+        # Get OEM numbers for these products
+        oem_metafields = session.query(ProductMetafield).filter(
+            ProductMetafield.key == 'original_nummer',
+            ProductMetafield.product_id.in_(product_ids)
+        ).all()
+        
+        print(f"🔧 Found {len(oem_metafields)} OEM metafields")
+        
+        all_oems = set()
+        for metafield in oem_metafields:
+            if metafield.value:
+                # Split comma-separated OEM numbers
+                oem_list = [oem.strip() for oem in metafield.value.split(',') if oem.strip()]
+                all_oems.update(oem_list)
+        
+        session.close()
+        print(f"✅ Total unique OEMs found: {len(all_oems)}")
+        return list(all_oems)
+        
+    except Exception as e:
+        print(f"❌ Error getting available OEMs: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
+    """Check which OEMs from the list are compatible with the vehicle using smart brand-based logic"""
+    from rapidapi_tecdoc import search_oem_in_tecdoc
+    
+    compatible_oems = []
+    
+    print(f"🔍 Checking compatibility for {brand} {model} {year}")
+    
+    # Limit to first 50 OEMs to avoid timeout
+    limited_oems = oem_list[:50]
+    print(f"📋 Checking {len(limited_oems)} OEMs for compatibility...")
+    
+    for oem in limited_oems:
+        try:
+            # Search for this OEM in TecDoc
+            result = search_oem_in_tecdoc(oem)
+            
+            if result.get('found') and result.get('articles'):
+                articles = result.get('articles', [])
+                
+                # Check each article for brand compatibility
+                is_compatible = False
+                for article in articles:
+                    manufacturer_name = article.get('manufacturerName', '').upper()
+                    product_name = article.get('articleProductName', '').upper()
+                    
+                    # Brand matching logic
+                    target_brand = brand.upper()
+                    
+                    # Normalize brand names for better matching
+                    if target_brand == 'VOLKSWAGEN':
+                        target_brand = 'VW'
+                    
+                    # Direct brand match (exact or contains)
+                    brand_match = False
+                    if target_brand == manufacturer_name or manufacturer_name == target_brand:
+                        brand_match = True
+                    elif target_brand in manufacturer_name or manufacturer_name in target_brand:
+                        # Only allow partial matches for reasonable cases
+                        if len(target_brand) >= 3 and len(manufacturer_name) >= 3:
+                            brand_match = True
+                    
+                    if brand_match:
+                        print(f"✅ OEM {oem} compatible: {manufacturer_name} part for {target_brand}")
+                        is_compatible = True
+                        break
+                    
+                    # Check if product name mentions the target brand or model
+                    if target_brand in product_name or model.upper() in product_name:
+                        print(f"✅ OEM {oem} compatible: Product '{product_name}' mentions {target_brand}/{model}")
+                        is_compatible = True
+                        break
+                    
+                    # Special case: VW/Volkswagen/Audi/Seat/Skoda group
+                    vw_group = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
+                    if target_brand in vw_group or brand.upper() in vw_group:
+                        if any(vw_brand == manufacturer_name or manufacturer_name == vw_brand for vw_brand in vw_group):
+                            print(f"✅ OEM {oem} compatible: VW Group part ({manufacturer_name}) for {target_brand}")
+                            is_compatible = True
+                            break
+                    
+                    # Explicitly reject incompatible brands
+                    incompatible_brands = ['VOLVO', 'BMW', 'MERCEDES', 'FORD', 'TOYOTA', 'NISSAN']
+                    if target_brand not in vw_group and manufacturer_name in incompatible_brands:
+                        print(f"❌ OEM {oem} rejected: {manufacturer_name} part not compatible with {target_brand}")
+                        break
+                
+                if is_compatible:
+                    compatible_oems.append(oem)
+                else:
+                    print(f"❌ OEM {oem} not compatible: {manufacturer_name} part not suitable for {target_brand}")
+            else:
+                print(f"❌ OEM {oem} not found in TecDoc")
+                
+        except Exception as e:
+            print(f"❌ Error checking OEM {oem}: {e}")
+            continue
+    
+    print(f"🎯 Found {len(compatible_oems)} brand-compatible OEMs")
+    return compatible_oems
+
+
+@app.route('/api/car_parts_search', methods=['GET'])
 def car_parts_search():
     """Search for car parts by license plate"""
     regnr = request.args.get('regnr', '').upper()
@@ -281,33 +557,46 @@ def car_parts_search():
         
         print(f"✅ Vehicle info extracted: {vehicle_info}")
         
-        # Step 2: Get OEM numbers from TecDoc API
-        print(f"🔍 Step 2: Getting OEM numbers from TecDoc API for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        # Step 2: NEW STRATEGY - Get available OEMs from database and check TecDoc compatibility
+        print(f"📋 Step 2: Getting available OEMs from Rackbeat database...")
+        available_oems = get_available_oems_from_database()
+        print(f"💾 Found {len(available_oems)} OEMs in database")
         
-        oem_numbers = get_oem_numbers_from_tecdoc(
+        if not available_oems:
+            return jsonify({
+                'vehicle_info': vehicle_info,
+                'available_oems': 0,
+                'compatible_oems': [],
+                'matching_products': [],
+                'message': 'No OEMs available in database'
+            })
+        
+        # Step 3: Check which OEMs are compatible with this vehicle using RapidAPI TecDoc
+        print(f"🔍 Step 3: Checking OEM compatibility with {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        compatible_oems = check_oems_compatibility_with_vehicle(
+            available_oems[:50],  # Test first 50 to avoid timeout
             vehicle_info['make'], 
             vehicle_info['model'], 
             vehicle_info['year']
         )
         
-        if not oem_numbers:
-            print(f"❌ TecDoc API failed for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        print(f"✅ Found {len(compatible_oems)} compatible OEMs")
+        
+        if not compatible_oems:
             return jsonify({
                 'vehicle_info': vehicle_info,
-                'oem_numbers': [],
+                'available_oems': len(available_oems),
+                'compatible_oems': [],
                 'matching_products': [],
-                'message': 'TecDoc API failed - no OEM numbers available'
+                'message': f'No compatible OEMs found for this vehicle (tested {min(50, len(available_oems))} OEMs)'
             })
         
-        print(f"📦 Found {len(oem_numbers)} OEM numbers: {oem_numbers[:20]}")  # Show first 20
-        
-        # Step 3: Search Shopify products for OEM numbers
-        print(f"🛍️ Step 3: Searching Shopify products for OEM numbers")
+        # Step 4: Get products for compatible OEMs
+        print(f"🛍️ Step 4: Getting products for compatible OEMs")
         
         all_matching_products = []
-        updated_metafields = 0
         
-        for oem_number in oem_numbers:
+        for oem_number in compatible_oems:
             try:
                 matching_products = search_products_by_oem(oem_number)
                 
@@ -339,11 +628,11 @@ def car_parts_search():
         
         return jsonify({
             'vehicle_info': vehicle_info,
-            'oem_numbers': oem_numbers,
-            'matching_products': final_products,
-            'total_matches': len(final_products),
-            'metafields_updated': updated_metafields
-        })
+            'available_oems': len(available_oems),
+            'compatible_oems': len(compatible_oems),
+            'shopify_parts': final_products,  
+            'message': f'Found {len(final_products)} compatible parts'
+        })        
         
     except Exception as e:
         print(f"❌ Error in car_parts_search: {e}")
@@ -402,11 +691,19 @@ def health_check():
 def test_svv():
     """Test SVV API directly"""
     try:
-        vehicle_data = hent_kjoretoydata('KH66644')
+        # Get license plate from query parameter
+        test_regnr = request.args.get('regnr', '').upper()
+        if not test_regnr:
+            return jsonify({
+                'success': False,
+                'error': 'Missing regnr parameter'
+            })
+        
+        vehicle_data = hent_kjoretoydata(test_regnr)
         vehicle_info = extract_vehicle_info(vehicle_data)
         return jsonify({
             'success': True,
-            'vehicle_data': vehicle_data,
+            'svv_data': vehicle_data,
             'vehicle_info': vehicle_info
         })
     except Exception as e:
@@ -419,27 +716,53 @@ def test_svv():
 
 @app.route('/api/test_tecdoc')
 def test_tecdoc():
-    """Test TecDoc API with sample vehicle data"""
+    """Test TecDoc API with vehicle data from license plate parameter"""
     try:
-        # Test with VW Tiguan 2009 (we have real data for this)
-        test_brand = "VOLKSWAGEN"
-        test_model = "TIGUAN"
-        test_year = "2009"
+        # Get license plate from query parameter
+        test_regnr = request.args.get('regnr', '').upper()
         
-        print(f"🧪 Testing TecDoc API with: {test_brand} {test_model} {test_year}")
+        if not test_regnr:
+            return jsonify({
+                'success': False,
+                'error': 'License plate parameter (regnr) is required',
+                'method': 'TecDoc API via Apify'
+            })
         
-        oem_numbers = get_oem_numbers_from_tecdoc(test_brand, test_model, test_year)
+        # Get vehicle data from SVV API first
+        vehicle_data = hent_kjoretoydata(test_regnr)
+        if not vehicle_data:
+            return jsonify({
+                'success': False,
+                'error': 'Could not retrieve vehicle data from SVV',
+                'method': 'TecDoc API via Apify'
+            })
+        
+        vehicle_info = extract_vehicle_info(vehicle_data)
+        if not vehicle_info:
+            return jsonify({
+                'success': False,
+                'error': 'Could not extract vehicle info',
+                'method': 'TecDoc API via Apify'
+            })
+        
+        print(f"🧪 Testing RapidAPI TecDoc with: {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        
+        from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
+        
+        oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(
+            vehicle_info['make'], 
+            vehicle_info['model'], 
+            vehicle_info['year'],
+            svv_data=vehicle_data  # Pass full SVV data for VIN/engine code lookup
+        )
         
         return jsonify({
             'success': True,
-            'test_data': {
-                'brand': test_brand,
-            'model': test_model,
-                'year': test_year
-            },
+            'license_plate': test_regnr,
+            'vehicle_info': vehicle_info,
             'oem_numbers': oem_numbers,
             'count': len(oem_numbers),
-            'method': 'TecDoc API via Apify'
+            'method': 'RapidAPI TecDoc'
         })
     except Exception as e:
         return jsonify({
@@ -517,17 +840,62 @@ def update_cache():
 def cache_stats():
     """Get cache statistics"""
     try:
-        from database import SessionLocal, ShopifyProduct
+        from database import SessionLocal
+        from sqlalchemy import text
         session = SessionLocal()
-        count = session.query(ShopifyProduct).count()
-        session.close()
         
-        return jsonify({
-            'total_products': count,
-            'cache_status': 'active'
-        })
+        # Get actual table structure
+        tables_result = session.execute(text("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name;
+        """))
         
+        tables = [row[0] for row in tables_result]
+        print(f"📋 Available tables: {tables}")
+        
+        # Get column info for shopify_products
+        if 'shopify_products' in tables:
+            columns_result = session.execute(text("""
+                SELECT column_name, data_type
+                FROM information_schema.columns 
+                WHERE table_name = 'shopify_products'
+                ORDER BY ordinal_position;
+            """))
+            
+            columns = [(row[0], row[1]) for row in columns_result]
+            print(f"🔍 shopify_products columns: {columns}")
+            
+            # Get row count
+            count_result = session.execute(text("SELECT COUNT(*) FROM shopify_products;"))
+            row_count = count_result.scalar()
+            
+            # Get sample data
+            sample_result = session.execute(text("SELECT * FROM shopify_products LIMIT 3;"))
+            sample_data = [dict(row._mapping) for row in sample_result]
+            
+            session.close()
+            
+            return jsonify({
+                'cache_status': 'active',
+                'tables': tables,
+                'shopify_products_columns': columns,
+                'total_products': row_count,
+                'sample_data': sample_data
+            })
+        else:
+            session.close()
+            return jsonify({
+                'cache_status': 'active',
+                'tables': tables,
+                'error': 'shopify_products table not found'
+            })
+            
     except Exception as e:
+        print(f"❌ Error getting cache stats: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/metafields/update_oem', methods=['POST'])
@@ -597,8 +965,15 @@ def metafields_stats():
 def test_complete_workflow():
     """Test the complete car parts search workflow"""
     try:
-        # Test with a known working license plate
-        test_regnr = "KH66644"  # VW Tiguan 2009
+        # Get license plate from query parameter - no hardcoded fallback
+        test_regnr = request.args.get('regnr', '').upper()
+        
+        if not test_regnr:
+            return jsonify({
+                'success': False,
+                'error': 'License plate parameter (regnr) is required',
+                'step': 'validation'
+            })
         
         print(f"🧪 Testing complete workflow with license plate: {test_regnr}")
         
@@ -676,21 +1051,134 @@ def test_complete_workflow():
             'message': 'Complete workflow test failed'
         })
 
+@app.route('/api/database/raw_query')
+def raw_database_query():
+    """Direct database query to see actual structure"""
+    try:
+        import psycopg2
+        import os
+        
+        # Connect directly to PostgreSQL
+        DATABASE_URL = os.getenv('DATABASE_URL')
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Get table names
+        cur.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name;
+        """)
+        tables = [row[0] for row in cur.fetchall()]
+        
+        result = {'tables': tables}
+        
+        # Get shopify_products structure
+        if 'shopify_products' in tables:
+            cur.execute("""
+                SELECT column_name, data_type
+                FROM information_schema.columns 
+                WHERE table_name = 'shopify_products'
+                ORDER BY ordinal_position;
+            """)
+            columns = [(row[0], row[1]) for row in cur.fetchall()]
+            result['shopify_products_columns'] = columns
+            
+            # Get row count
+            cur.execute("SELECT COUNT(*) FROM shopify_products;")
+            result['shopify_products_count'] = cur.fetchone()[0]
+            
+            # Get sample data
+            cur.execute("SELECT * FROM shopify_products LIMIT 3;")
+            sample_data = cur.fetchall()
+            result['shopify_products_sample'] = sample_data
+        
+        # Get shopify_metafields structure if it exists
+        if 'shopify_metafields' in tables:
+            cur.execute("""
+                SELECT column_name, data_type
+                FROM information_schema.columns 
+                WHERE table_name = 'shopify_metafields'
+                ORDER BY ordinal_position;
+            """)
+            columns = [(row[0], row[1]) for row in cur.fetchall()]
+            result['shopify_metafields_columns'] = columns
+            
+            # Get row count
+            cur.execute("SELECT COUNT(*) FROM shopify_metafields;")
+            result['shopify_metafields_count'] = cur.fetchone()[0]
+        
+        conn.close()
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"❌ Error in raw database query: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/database/inspect')
 def inspect_database():
     """Inspect the actual Railway database structure"""
     try:
-        from database import inspect_database_structure
-        columns = inspect_database_structure()
+        from database import SessionLocal
+        from sqlalchemy import text
+        session = SessionLocal()
+        
+        # Get all tables in the database
+        tables_result = session.execute(text("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name;
+        """))
+        
+        tables = [row[0] for row in tables_result]
+        print(f"📋 Available tables: {tables}")
+        
+        table_info = {}
+        for table_name in tables:
+            # Get column info for each table
+            columns_result = session.execute(text(f"""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns 
+                WHERE table_name = '{table_name}'
+                ORDER BY ordinal_position;
+            """))
+            
+            columns = []
+            for row in columns_result:
+                columns.append({
+                    'name': row[0],
+                    'type': row[1],
+                    'nullable': row[2]
+                })
+            
+            # Get row count
+            try:
+                count_result = session.execute(text(f"SELECT COUNT(*) FROM {table_name};"))
+                row_count = count_result.scalar()
+            except:
+                row_count = 'N/A'
+            
+            table_info[table_name] = {
+                'columns': columns,
+                'row_count': row_count
+            }
+        
+        session.close()
         
         return jsonify({
             'message': 'Database structure inspection completed',
-            'columns': columns,
-            'total_columns': len(columns)
+            'tables': table_info,
+            'total_tables': len(tables)
         })
         
     except Exception as e:
         print(f"❌ Error inspecting database: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'Failed to inspect database', 'details': str(e)}), 500
 
 if __name__ == '__main__':
