@@ -1,6 +1,10 @@
-# -------------------- Statens Vegvesen --------------------
+# -------------------- Statens Vegvesen (SVV) --------------------
 SVV_API_KEY=<PLACEHOLDER_SVV_TOKEN>
 SVV_ENDPOINT=https://akfell-datautlevering.atlas.vegvesen.no/enkeltoppslag/kjoretoydata
+
+# -------------------- TecDoc API via Apify --------------------
+TECDOC_API_KEY=<PLACEHOLDER_APIFY_TOKEN>
+TECDOC_BASE_URL=https://api.apify.com/v2/acts/making-data-meaningful~tecdoc/run-sync-get-dataset-items
 
 # -------------------- Rackbeat ----------------------------
 RACKBEAT_API_KEY=<PLACEHOLDER_RACKBEAT_JWT>
@@ -17,4 +21,7 @@ MECAPARTS_ENDPOINT=https://<STORE>.myshopify.com/admin/api/2023-10/apps/mecapart
 
 # -------------------- Flask Configuration -------------------
 PORT=8000                                                    # Railway uses PORT environment variable
-FLASK_ENV=production                                         # Set to production for Railway 
+FLASK_ENV=production                                         # Set to production for Railway
+
+# -------------------- Database -------------------
+DATABASE_URL=postgresql://username:password@host:port/database 
