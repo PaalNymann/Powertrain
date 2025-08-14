@@ -61,9 +61,13 @@ def filter_keep(p:dict) -> bool:
     if group_name not in ["Drivaksel", "Mellomaksel"]:
         return False
     
-    # Note: i_nettbutikk field not yet available in Rackbeat API
-    # Customer will need to configure this field in Rackbeat for future filtering
-    print(f"✅ Product '{p.get('name', 'N/A')[:30]}' passed filters - Group: {group_name}")
+    # Check i_nettbutikk = 'ja' (webshop availability) - CRITICAL FILTER
+    i_nettbutikk = p.get("i_nettbutikk", "").lower()
+    if i_nettbutikk != "ja":
+        print(f"🚫 FILTERED OUT: '{p.get('name', 'N/A')[:30]}' - i_nettbutikk: {i_nettbutikk}")
+        return False
+    
+    print(f"✅ Product '{p.get('name', 'N/A')[:30]}' passed filters - Group: {group_name}, i_nettbutikk: {i_nettbutikk}")
     
     return True
 
@@ -72,10 +76,19 @@ def filter_keep(p:dict) -> bool:
 def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
     """Return (product_payload, metafield_payload_list)"""
     sku = p["number"]
+    # Map Rackbeat group to Shopify collection (plural forms)
+    group_name = p.get("group", {}).get("name", "")
+    collection_mapping = {
+        "Drivaksel": "Drivaksler",      # Rackbeat → Shopify collection
+        "Mellomaksel": "Mellomaksler"   # Rackbeat → Shopify collection
+    }
+    shopify_collection = collection_mapping.get(group_name, "Uncategorized")
+    
     payload = {
         "product": {
             "title": p["name"] or sku,
             "status": "active",
+            "product_type": shopify_collection,  # Set for collection assignment
             "variants":[{"sku": sku, "price": p["sales_price"]}],
             "handle": sku.lower().replace(" ","-")
         }
@@ -107,7 +120,7 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
         "number":                p.get("number", ""),  # For free text search (unique customer number)
         "original_nummer":       oem_string,  # Extracted OEM numbers from description
         "product_group":         p.get("group", {}).get("name", ""),  # Product group for filtering
-        "i_nettbutikk":          "ja",  # All synced products should be in webshop
+        "i_nettbutikk":          p.get("i_nettbutikk", "ja"),  # Use actual Rackbeat value
         "tirsan_varenummer":     "",  # Will be populated when field is identified
         "odm_varenummer":        "",  # Will be populated when field is identified
         "ims_varenummer":        "",  # Will be populated when field is identified
@@ -152,6 +165,48 @@ def get_all_shopify_ids() -> dict:
         else:
             break
     return out
+
+def get_collection_id(collection_name):
+    """Get Shopify collection ID by name"""
+    try:
+        response = requests.get(
+            f"https://{SHOP_DOMAIN}/admin/api/2023-10/collections.json",
+            headers=HEAD_SHOP, timeout=20
+        )
+        if response.status_code == 200:
+            collections = response.json().get("collections", [])
+            for collection in collections:
+                if collection.get("title") == collection_name:
+                    return collection.get("id")
+        return None
+    except Exception as e:
+        print(f"⚠️ Error getting collection {collection_name}: {e}")
+        return None
+
+def assign_to_collection(product_id, collection_name):
+    """Assign product to Shopify collection"""
+    collection_id = get_collection_id(collection_name)
+    if not collection_id:
+        print(f"⚠️ Collection '{collection_name}' not found")
+        return False
+    
+    try:
+        # Add product to collection
+        response = requests.post(
+            f"https://{SHOP_DOMAIN}/admin/api/2023-10/collects.json",
+            headers=HEAD_SHOP,
+            json={"collect": {"product_id": product_id, "collection_id": collection_id}},
+            timeout=20
+        )
+        if response.status_code == 201:
+            print(f"✅ Added product {product_id} to collection '{collection_name}'")
+            return True
+        else:
+            print(f"⚠️ Failed to add product to collection: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"⚠️ Error assigning to collection: {e}")
+        return False
 
 def ensure_product(shop_ids:dict, payload:dict, metafields:list):
     sku = payload["product"]["variants"][0]["sku"]
@@ -199,6 +254,13 @@ def ensure_product(shop_ids:dict, payload:dict, metafields:list):
                 f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
                 headers=HEAD_SHOP, json={"metafield":mf}
             )
+    
+    # Assign product to correct Shopify collection based on product_type
+    if pid:
+        product_type = payload["product"].get("product_type", "")
+        if product_type in ["Drivaksler", "Mellomaksler"]:
+            assign_to_collection(pid, product_type)
+    
     return pid
 
 # ---------- Flask API ----------
