@@ -7,27 +7,47 @@ import json
 
 Base = declarative_base()
 
+class ProductMetafield(Base):
+    __tablename__ = 'product_metafields'
+    
+    id = Column(String, primary_key=True)
+    product_id = Column(String)
+    namespace = Column(String)
+    key = Column(String)
+    value = Column(String)
+    created_at = Column(DateTime)
+    
+    def __repr__(self):
+        return f"<ProductMetafield(product_id='{self.product_id}', key='{self.key}', value='{self.value}')>"
+
 class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
     id = Column(String, primary_key=True)
     title = Column(String)
     handle = Column(String)
+    sku = Column(String)
+    price = Column(String)  # Using String to match Railway's double precision
     inventory_quantity = Column(Integer)
-    original_nummer_metafield = Column(String)  # Add this column for OEM matching
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
     
     def __repr__(self):
-        return f"<ShopifyProduct(id='{self.id}', title='{self.title}', original_nummer='{self.original_nummer_metafield}')>"
+        return f"<ShopifyProduct(id='{self.id}', title='{self.title}', handle='{self.handle}')>"
 
 def get_database_url():
     """Get database URL from environment or use SQLite for local development"""
     database_url = os.getenv('DATABASE_URL')
+    print(f"🔧 DATABASE_URL from environment: {database_url}")
+    
     if database_url and database_url.startswith('postgresql://'):
+        print(f"✅ Using PostgreSQL database")
         return database_url
     elif database_url and database_url.startswith('sqlite://'):
+        print(f"✅ Using SQLite database")
         return database_url
     else:
-        # Always use SQLite locally
+        print(f"⚠️ Falling back to local SQLite database")
         return 'sqlite:///powertrain.db'
 
 engine = create_engine(get_database_url())
@@ -42,26 +62,72 @@ def init_db():
         print(f"Error initializing database: {e}")
         raise
 
+def product_to_dict(product):
+    """Convert ShopifyProduct object to dictionary"""
+    return {
+        'id': product.id,
+        'title': product.title,
+        'handle': product.handle,
+        'sku': product.sku,
+        'price': product.price,
+        'inventory_quantity': product.inventory_quantity,
+        'created_at': product.created_at.isoformat() if product.created_at else None,
+        'updated_at': product.updated_at.isoformat() if product.updated_at else None
+    }
+
 def search_products_by_oem(oem_number, include_number=False):
-    """Search for products by OEM number using the original_nummer metafield"""
+    """Search for products by OEM number in product_metafields and match with shopify_products"""
     session = SessionLocal()
     try:
-        # Search in the original_nummer metafield for exact or partial matches
-        query = session.query(ShopifyProduct).filter(
-            ShopifyProduct.original_nummer_metafield.contains(oem_number)
+        # Search in product_metafields for OEM numbers
+        metafields_query = session.query(ProductMetafield).filter(
+            or_(
+                (ProductMetafield.key == 'original_nummer') & (ProductMetafield.value.contains(oem_number)),
+                (ProductMetafield.key == 'number') & (ProductMetafield.value.contains(oem_number))
+            )
+        ).filter(
+            ProductMetafield.value != 'N/A'
         )
         
-        products = query.all()
+        # Get matching product IDs from metafields
+        product_ids = set()
+        for row in metafields_query.all():
+            product_ids.add(row.product_id)
+        
+        # Also search directly in shopify_products handle field as backup
+        direct_products = session.query(ShopifyProduct).filter(
+            or_(
+                ShopifyProduct.handle.contains(oem_number),
+                ShopifyProduct.sku.contains(oem_number)
+            )
+        ).all()
+        
+        # Add direct product matches
+        for product in direct_products:
+            product_ids.add(product.id)
+        
+        if not product_ids:
+            print(f"🔍 No products found for OEM: {oem_number}")
+            return []
+        
+        print(f"🔍 Found {len(product_ids)} product IDs matching OEM: {oem_number}")
+        
+        # Get the actual products from shopify_products table
+        products = session.query(ShopifyProduct).filter(
+            ShopifyProduct.id.in_(product_ids)
+        ).all()
         
         if products:
-            print(f"🔍 Found {len(products)} products matching OEM: {oem_number}")
+            print(f"✅ Returning {len(products)} complete products")
             return [product_to_dict(product) for product in products]
         else:
-            print(f"🔍 No products found for OEM: {oem_number}")
+            print(f"🔍 No complete products found for OEM: {oem_number}")
             return []
             
     except Exception as e:
         print(f"❌ Error searching database: {e}")
+        import traceback
+        traceback.print_exc()
         return []
     finally:
         session.close()
@@ -143,33 +209,66 @@ def inspect_database_structure():
     try:
         # Get table info from PostgreSQL
         if 'postgresql' in get_database_url():
-            # Use raw SQL to inspect table structure
-            result = session.execute("""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns 
-                WHERE table_name = 'shopify_products'
-                ORDER BY ordinal_position;
+            print(f"🔍 Inspecting PostgreSQL database: {get_database_url()[:50]}...")
+            
+            # First, check what tables exist
+            tables_result = session.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name;
             """)
             
-            columns = []
-            for row in result:
-                columns.append({
-                    'name': row[0],
-                    'type': row[1],
-                    'nullable': row[2]
-                })
+            tables = [row[0] for row in tables_result]
+            print(f"📋 Available tables: {tables}")
             
-            print("🔍 Railway database structure:")
-            for col in columns:
-                print(f"  - {col['name']}: {col['type']} (nullable: {col['nullable']})")
+            # Check if shopify_products table exists
+            if 'shopify_products' in tables:
+                # Get column info for shopify_products
+                result = session.execute("""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns 
+                    WHERE table_name = 'shopify_products'
+                    ORDER BY ordinal_position;
+                """)
+                
+                columns = []
+                for row in result:
+                    columns.append({
+                        'name': row[0],
+                        'type': row[1],
+                        'nullable': row[2]
+                    })
+                
+                print("🔍 shopify_products table structure:")
+                for col in columns:
+                    print(f"  - {col['name']}: {col['type']} (nullable: {col['nullable']})")
+                
+                # Also check row count
+                count_result = session.execute("SELECT COUNT(*) FROM shopify_products;")
+                row_count = count_result.scalar()
+                print(f"📊 Total rows in shopify_products: {row_count}")
+                
+                # Sample a few rows to see the data
+                if row_count > 0:
+                    sample_result = session.execute("SELECT * FROM shopify_products LIMIT 3;")
+                    print("📝 Sample data:")
+                    for row in sample_result:
+                        print(f"  Row: {dict(row._mapping)}")
+                
+                return columns
+            else:
+                print("❌ shopify_products table does not exist!")
+                return []
             
-            return columns
         else:
             print("⚠️ Not a PostgreSQL database, cannot inspect structure")
             return []
             
     except Exception as e:
         print(f"❌ Error inspecting database structure: {e}")
+        import traceback
+        traceback.print_exc()
         return []
     finally:
         session.close()
