@@ -135,6 +135,10 @@ def sync_to_railway_database(products):
             try:
                 print(f"📦 Processing {i+1}/{len(products)}: {product.get('name', 'N/A')[:40]}")
                 
+                # Determine Shopify category based on Rackbeat group
+                group_name = product.get("group", {}).get("name", "")
+                shopify_category = group_name if group_name in ["Drivaksel", "Mellomaksel"] else "Uncategorized"
+                
                 # Create ShopifyProduct record
                 shopify_product = ShopifyProduct(
                     id=product.get("number", f"rb_{i}"),  # Use Rackbeat number as ID
@@ -143,6 +147,7 @@ def sync_to_railway_database(products):
                     sku=product.get("number", ""),
                     price=float(product.get("sales_price", 0)),
                     inventory_quantity=int(product.get("available_quantity", 0)),
+                    product_type=shopify_category,  # Set Shopify category
                     created_at=datetime.now(),
                     updated_at=datetime.now()
                 )
