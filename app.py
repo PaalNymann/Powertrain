@@ -212,10 +212,14 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
     return compatible_oems
 
 
-@app.route('/api/car_parts_search', methods=['GET'])
+@app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
     """Search for car parts by license plate"""
-    regnr = request.args.get('regnr', '').upper()
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        regnr = data.get('license_plate', '').upper()
+    else:
+        regnr = request.args.get('regnr', '').upper()
     
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
