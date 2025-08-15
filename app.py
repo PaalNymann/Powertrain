@@ -107,7 +107,7 @@ def get_available_oems_from_database():
         
         # Get OEM numbers for these products
         oem_metafields = session.query(ProductMetafield).filter(
-            ProductMetafield.key == 'original_nummer',
+            ProductMetafield.key == 'Original_nummer',
             ProductMetafield.product_id.in_(product_ids)
         ).all()
         
