@@ -83,7 +83,7 @@ def search_products_by_oem(oem_number, include_number=False):
         # Search in product_metafields for OEM numbers
         metafields_query = session.query(ProductMetafield).filter(
             or_(
-                (ProductMetafield.key == 'original_nummer') & (ProductMetafield.value.contains(oem_number)),
+                (ProductMetafield.key == 'Original_nummer') & (ProductMetafield.value.contains(oem_number)),
                 (ProductMetafield.key == 'number') & (ProductMetafield.value.contains(oem_number))
             )
         ).filter(
