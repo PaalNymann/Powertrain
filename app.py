@@ -191,11 +191,8 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
                             is_compatible = True
                             break
                     
-                    # Explicitly reject incompatible brands
-                    incompatible_brands = ['VOLVO', 'BMW', 'MERCEDES', 'FORD', 'TOYOTA', 'NISSAN']
-                    if target_brand not in vw_group and manufacturer_name in incompatible_brands:
-                        print(f"❌ OEM {oem} rejected: {manufacturer_name} part not compatible with {target_brand}")
-                        break
+                    # Skip explicit rejection - let brand matching logic handle compatibility
+                    # (Removed incompatible_brands logic that was incorrectly rejecting valid matches)
                 
                 if is_compatible:
                     compatible_oems.append(oem)

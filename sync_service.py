@@ -12,6 +12,10 @@ import os, sys, time, json, requests
 from dotenv import load_dotenv
 load_dotenv()
 
+# Import database functions
+from database import SessionLocal, ShopifyProduct, ProductMetafield, init_db
+from datetime import datetime
+
 # ---------- ENV ----------
 RACKBEAT_API   = os.getenv("RACKBEAT_ENDPOINT", "https://app.rackbeat.com/api/products")
 RACKBEAT_KEY   = os.getenv("RACKBEAT_API_KEY")
@@ -34,8 +38,13 @@ HEAD_SHOP = {
 
 def rb_page(page:int=1, limit:int=250):
     """Return (products, pages) tuple for given Rackbeat page"""
-    url = f"{RACKBEAT_API}?page={page}&limit={limit}"
-    r = requests.get(url, headers=HEAD_RACK, timeout=30)
+    # Include metadata in fields parameter to get custom fields
+    params = {
+        "limit": limit,
+        "page": page,
+        "fields": "number,name,sales_price,available_quantity,group,metadata"
+    }
+    r = requests.get(RACKBEAT_API, headers=HEAD_RACK, params=params, timeout=30)
     if r.status_code not in [200, 206]:  # Accept both 200 and 206 (Partial Content)
         raise RuntimeError(f"Rackbeat page {page} → {r.status_code}")
     js = r.json()
@@ -52,35 +61,74 @@ def fetch_all_rackbeat() -> list[dict]:
     return all_prod
 
 def filter_keep(p:dict) -> bool:
-    # Check basic requirements: stock and price
+    """Filter products to keep only those that should be synced to Shopify"""
+    # Check stock and price requirements
     if not (p.get("available_quantity",0) >= 1 and p.get("sales_price",0) > 0):
         return False
     
-    # Check product group: only Drivaksel and Mellomaksel
+    # Check product group - ONLY Drivaksel and Mellomaksel
     group_name = p.get("group", {}).get("name", "")
     if group_name not in ["Drivaksel", "Mellomaksel"]:
         return False
     
-    # Check i_nettbutikk = 'ja' (webshop availability) - CRITICAL FILTER
-    i_nettbutikk = p.get("i_nettbutikk", "").lower()
+    # Check i_nettbutikk field (webshop availability) - CRITICAL FILTER
+    i_nettbutikk = extract_custom_field(p, "i_nettbutikk").lower()
     if i_nettbutikk != "ja":
-        print(f"🚫 FILTERED OUT: '{p.get('name', 'N/A')[:30]}' - i_nettbutikk: {i_nettbutikk}")
+        print(f"🚫 FILTERED OUT: '{p.get('name', 'N/A')[:30]}' - i_nettbutikk: '{i_nettbutikk}' (Group: {group_name})")
         return False
     
-    print(f"✅ Product '{p.get('name', 'N/A')[:30]}' passed filters - Group: {group_name}, i_nettbutikk: {i_nettbutikk}")
-    
+    print(f"✅ KEEPING: '{p.get('name', 'N/A')[:50]}' (Group: {group_name}, Stock: {p.get('available_quantity', 0)}, Price: {p.get('sales_price', 0)})")
     return True
 
+def get_original_nummer_from_metadata(metadata):
+    """Extract Original_nummer from metadata array"""
+    for field in metadata:
+        if field.get('slug') == 'original-nummer':
+            return field.get('value', '')
+    return ''
 
+def get_i_nettbutikk_from_metadata(metadata):
+    """Extract i_nettbutikk from metadata array"""
+    # Test different possible slug names
+    possible_slugs = ['i-nettbutikk', 'i_nettbutikk', 'nettbutikk', 'webshop', 'online']
+    for field in metadata:
+        if field.get('slug') in possible_slugs:
+            return field.get('value', '')
+    return ''
+
+def debug_metadata_fields(p):
+    """Debug function to show all metadata fields"""
+    metadata = p.get('metadata', [])
+    print(f"🔍 Metadata felter for produkt: {p.get('name', '')[:50]}")
+    for field in metadata:
+        print(f"   Slug: {field.get('slug')} = Value: {field.get('value')}")
+    return metadata
+
+def extract_custom_field(p:dict, field_name:str) -> str:
+    """Extract custom field from product metadata array"""
+    metadata = p.get('metadata', [])
+    
+    if field_name == "Original_nummer":
+        return get_original_nummer_from_metadata(metadata)
+    elif field_name == "i_nettbutikk":
+        return get_i_nettbutikk_from_metadata(metadata)
+    else:
+        # For other fields, search by slug
+        for field in metadata:
+            if field.get('slug') == field_name.lower().replace('_', '-'):
+                return field.get('value', '')
+    
+    return ""
 
 def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
     """Return (product_payload, metafield_payload_list)"""
     sku = p["number"]
+    
     # Map Rackbeat group to Shopify collection (plural forms)
     group_name = p.get("group", {}).get("name", "")
     collection_mapping = {
-        "Drivaksel": "Drivaksler",      # Rackbeat → Shopify collection
-        "Mellomaksel": "Mellomaksler"   # Rackbeat → Shopify collection
+        "Drivaksel": "Drivaksler",
+        "Mellomaksel": "Mellomaksler"
     }
     shopify_collection = collection_mapping.get(group_name, "Uncategorized")
     
@@ -88,53 +136,82 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
         "product": {
             "title": p["name"] or sku,
             "status": "active",
-            "product_type": shopify_collection,  # Set for collection assignment
+            "product_type": shopify_collection,
             "variants":[{"sku": sku, "price": p["sales_price"]}],
             "handle": sku.lower().replace(" ","-")
         }
     }
     
-    # --- metafields (OEM fields for TecDoc matching + number for free text search)
-    # Extract OEM numbers from description or other fields if available
-    description = p.get("description", "")
+    # Extract metafields - OEM numbers and other relevant data
+    metafields = []
     
-    # Try to extract OEM numbers from description using regex patterns
-    import re
-    oem_numbers = []
-    if description:
-        # Common OEM patterns
-        patterns = [
-            r'\b\d{6,10}\b',           # 6-10 digit numbers like 8252034
-            r'\b[A-Z]{2,4}\d{3,8}\b',  # Patterns like BMW123456
-            r'\b[A-Z0-9]{6,12}\b',     # Alphanumeric codes
-        ]
-        for pattern in patterns:
-            matches = re.findall(pattern, description)
-            oem_numbers.extend(matches)
+    # Original numbers (OEM) - primary for TecDoc matching
+    original_nummer = extract_custom_field(p, "Original_nummer") or extract_custom_field(p, "original_nummer")
+    if original_nummer:
+        metafields.append({
+            "namespace": "custom",
+            "key": "original_nummer",
+            "value": str(original_nummer),
+            "type": "single_line_text_field"
+        })
     
-    # Remove duplicates and join with commas
-    unique_oems = list(set(oem_numbers))
-    oem_string = ", ".join(unique_oems) if unique_oems else ""
+    # Product group for filtering
+    if group_name:
+        metafields.append({
+            "namespace": "custom", 
+            "key": "product_group",
+            "value": group_name,
+            "type": "single_line_text_field"
+        })
     
-    fields = {
-        "number":                p.get("number", ""),  # For free text search (unique customer number)
-        "original_nummer":       oem_string,  # Extracted OEM numbers from description
-        "product_group":         p.get("group", {}).get("name", ""),  # Product group for filtering
-        "i_nettbutikk":          p.get("i_nettbutikk", "ja"),  # Use actual Rackbeat value
-        "tirsan_varenummer":     "",  # Will be populated when field is identified
-        "odm_varenummer":        "",  # Will be populated when field is identified
-        "ims_varenummer":        "",  # Will be populated when field is identified
-        "welte_varenummer":      "",  # Will be populated when field is identified
-        "bakkeren_varenummer":   "",  # Will be populated when field is identified
-    }
-    metafields = [
-        {
-            "namespace":"custom",
-            "key":k,
-            "type":"single_line_text_field",
-            "value":v or ""
-        } for k,v in fields.items()
+    # Webshop availability flag - extract from custom fields
+    i_nettbutikk = extract_custom_field(p, "i_nettbutikk") or "nei"
+    metafields.append({
+        "namespace": "custom",
+        "key": "i_nettbutikk", 
+        "value": str(i_nettbutikk),
+        "type": "single_line_text_field"
+    })
+    
+    # Additional custom fields for search (exclude inntektskonto)
+    custom_field_names = [
+        "Spicer Varenummer", "Industries Varenummer", "Tirsan varenummer",
+        "ODM varenummer", "IMS varenummer", "Welte varenummer", "Bakkeren varenummer"
     ]
+    
+    for field_name in custom_field_names:
+        val = extract_custom_field(p, field_name)
+        if val:
+            # Convert field name to safe metafield key
+            safe_key = field_name.lower().replace(" ", "_").replace("æ", "ae").replace("ø", "o").replace("å", "a")
+            metafields.append({
+                "namespace": "custom",
+                "key": safe_key,
+                "value": str(val),
+                "type": "single_line_text_field"
+            })
+    
+    # Add "Number" field for free text search (NOT for TecDoc matching)
+    number_field = p.get("number", "")
+    if number_field:
+        metafields.append({
+            "namespace": "custom",
+            "key": "number",
+            "value": str(number_field),
+            "type": "single_line_text_field"
+        })
+    
+    # Legacy fields for backward compatibility
+    for field in ["varenummer", "leverandor_nummer"]:
+        val = p.get(field, "")
+        if val:
+            metafields.append({
+                "namespace": "custom",
+                "key": field,
+                "value": str(val),
+                "type": "single_line_text_field"
+            })
+    
     return payload, metafields
 
 def get_all_shopify_ids() -> dict:
@@ -169,15 +246,26 @@ def get_all_shopify_ids() -> dict:
 def get_collection_id(collection_name):
     """Get Shopify collection ID by name"""
     try:
-        response = requests.get(
-            f"https://{SHOP_DOMAIN}/admin/api/2023-10/collections.json",
-            headers=HEAD_SHOP, timeout=20
-        )
-        if response.status_code == 200:
-            collections = response.json().get("collections", [])
-            for collection in collections:
-                if collection.get("title") == collection_name:
-                    return collection.get("id")
+        # Try custom collections first, then smart collections
+        endpoints = [
+            f"https://{SHOP_DOMAIN}/admin/api/2023-10/custom_collections.json",
+            f"https://{SHOP_DOMAIN}/admin/api/2023-10/smart_collections.json"
+        ]
+        
+        for endpoint in endpoints:
+            response = requests.get(endpoint, headers=HEAD_SHOP, timeout=20)
+            if response.status_code == 200:
+                data = response.json()
+                # Get the collections key (custom_collections or smart_collections)
+                collection_key = list(data.keys())[0] if data else None
+                if collection_key:
+                    collections = data.get(collection_key, [])
+                    for collection in collections:
+                        if collection.get("title") == collection_name:
+                            print(f"✅ Found collection '{collection_name}' with ID: {collection.get('id')}")
+                            return collection.get("id")
+        
+        print(f"⚠️ Collection '{collection_name}' not found in custom or smart collections")
         return None
     except Exception as e:
         print(f"⚠️ Error getting collection {collection_name}: {e}")
@@ -208,60 +296,199 @@ def assign_to_collection(product_id, collection_name):
         print(f"⚠️ Error assigning to collection: {e}")
         return False
 
-def ensure_product(shop_ids:dict, payload:dict, metafields:list):
-    sku = payload["product"]["variants"][0]["sku"]
-    if sku in shop_ids:
-        pid = shop_ids[sku]
-        # update price (variant 0)
-        response = requests.get(
-            f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{pid}.json",
-            headers=HEAD_SHOP, timeout=20
-        )
+def sync_to_database(product_data, metafields_data):
+    """Sync product data to Railway PostgreSQL database"""
+    session = SessionLocal()
+    try:
+        product_id = str(product_data.get("id"))
         
-        if response.status_code != 200:
-            print(f"⚠️  Failed to get product {sku}: {response.status_code}")
-            return None
-            
-        vid = response.json()["product"]["variants"][0]["id"]
-        requests.put(
-            f"https://{SHOP_DOMAIN}/admin/api/2023-10/variants/{vid}.json",
-            headers=HEAD_SHOP, json={"variant":{"price":payload["product"]["variants"][0]["price"]}}
-        )
-        # update metafields
-        for mf in metafields:
-            mf["owner_id"] = pid
-            mf["owner_resource"] = "product"
-            requests.post(
-                f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
-                headers=HEAD_SHOP, json={"metafield":mf}
+        # Create or update ShopifyProduct record
+        existing_product = session.query(ShopifyProduct).filter(ShopifyProduct.id == product_id).first()
+        
+        if existing_product:
+            # Update existing product
+            existing_product.title = product_data.get("title")
+            existing_product.handle = product_data.get("handle")
+            existing_product.sku = product_data.get("variants", [{}])[0].get("sku")
+            existing_product.price = str(product_data.get("variants", [{}])[0].get("price", 0))
+            existing_product.inventory_quantity = product_data.get("variants", [{}])[0].get("inventory_quantity", 0)
+            existing_product.product_type = product_data.get("product_type")
+            existing_product.updated_at = datetime.utcnow()
+            print(f"   📝 Updated database product: {product_id}")
+        else:
+            # Create new product
+            new_product = ShopifyProduct(
+                id=product_id,
+                title=product_data.get("title"),
+                handle=product_data.get("handle"),
+                sku=product_data.get("variants", [{}])[0].get("sku"),
+                price=str(product_data.get("variants", [{}])[0].get("price", 0)),
+                inventory_quantity=product_data.get("variants", [{}])[0].get("inventory_quantity", 0),
+                product_type=product_data.get("product_type"),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
             )
-    else:
-        # create new product
+            session.add(new_product)
+            print(f"   📝 Created database product: {product_id}")
+        
+        # Sync metafields to database
+        if metafields_data:
+            # Remove old metafields for this product
+            session.query(ProductMetafield).filter(ProductMetafield.product_id == product_id).delete()
+            
+            # Add new metafields
+            for metafield in metafields_data:
+                metafield_record = ProductMetafield(
+                    id=f"{product_id}_{metafield.get('key', 'unknown')}",
+                    product_id=product_id,
+                    namespace=metafield.get("namespace", "custom"),
+                    key=metafield.get("key"),
+                    value=metafield.get("value"),
+                    created_at=datetime.utcnow()
+                )
+                session.add(metafield_record)
+                print(f"   📝 Added metafield: {metafield.get('key')} = {metafield.get('value')}")
+        
+        session.commit()
+        return True
+        
+    except Exception as e:
+        print(f"   ❌ Database sync error: {e}")
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+def create_or_update_product_optimized(payload:dict, metafields:list):
+    """Create or update product directly without checking all existing IDs first"""
+    sku = payload["product"]["variants"][0]["sku"]
+    title = payload["product"]["title"]
+    
+    try:
+        # Try to create product first (most common case for new sync)
         response = requests.post(
             f"https://{SHOP_DOMAIN}/admin/api/2023-10/products.json",
-            headers=HEAD_SHOP, json=payload
+            headers=HEAD_SHOP, json=payload, timeout=30
         )
         
-        if response.status_code != 201:
-            print(f"⚠️  Failed to create product {sku}: {response.status_code} - {response.text}")
+        if response.status_code == 201:
+            # Product created successfully
+            product_data = response.json()
+            product = product_data.get("product", {})
+            product_id = product.get("id")
+            
+            # Add metafields to Shopify
+            if metafields and product_id:
+                for metafield in metafields:
+                    metafield_payload = {
+                        "metafield": {
+                            **metafield,
+                            "owner_id": product_id,
+                            "owner_resource": "product"
+                        }
+                    }
+                    
+                    try:
+                        meta_response = requests.post(
+                            f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
+                            headers=HEAD_SHOP, json=metafield_payload, timeout=20
+                        )
+                        if meta_response.status_code != 201:
+                            print(f"   ⚠️ Metafield failed for {metafield.get('key', 'N/A')}: {meta_response.status_code}")
+                    except Exception as e:
+                        print(f"   ⚠️ Metafield exception: {e}")
+            
+            # 🚨 CRITICAL: Sync to database as well!
+            sync_to_database(product, metafields)
+            
+            return product_id
+            
+        elif response.status_code == 422:
+            # Product might already exist, try to find and update it
+            error_data = response.json()
+            errors = error_data.get("errors", {})
+            
+            if "Title has already been taken" in str(errors) or "SKU" in str(errors):
+                # Search for existing product by SKU
+                try:
+                    search_response = requests.get(
+                        f"https://{SHOP_DOMAIN}/admin/api/2023-10/products.json?limit=1&fields=id,variants&sku={sku}",
+                        headers=HEAD_SHOP, timeout=20
+                    )
+                    
+                    if search_response.status_code == 200:
+                        search_data = search_response.json()
+                        products = search_data.get("products", [])
+                        
+                        for product in products:
+                            for variant in product.get("variants", []):
+                                if variant.get("sku") == sku:
+                                    existing_id = product.get("id")
+                                    
+                                    # Update existing product
+                                    update_payload = {
+                                        "product": {
+                                            "id": existing_id,
+                                            **payload['product']
+                                        }
+                                    }
+                                    
+                                    update_response = requests.put(
+                                        f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}.json",
+                                        headers=HEAD_SHOP, json=update_payload, timeout=30
+                                    )
+                                    
+                                    if update_response.status_code == 200:
+                                        # Update metafields
+                                        if metafields:
+                                            for metafield in metafields:
+                                                metafield_payload = {
+                                                    "metafield": {
+                                                        **metafield,
+                                                        "owner_id": existing_id,
+                                                        "owner_resource": "product"
+                                                    }
+                                                }
+                                                
+                                                try:
+                                                    requests.post(
+                                                        f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
+                                                        headers=HEAD_SHOP, json=metafield_payload, timeout=20
+                                                    )
+                                                except Exception as e:
+                                                    print(f"   ⚠️ Metafield update exception: {e}")
+                                        
+                                        # 🚨 CRITICAL: Sync updated product to database as well!
+                                        updated_product_response = requests.get(
+                                            f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}.json",
+                                            headers=HEAD_SHOP, timeout=20
+                                        )
+                                        if updated_product_response.status_code == 200:
+                                            updated_product_data = updated_product_response.json().get("product", {})
+                                            sync_to_database(updated_product_data, metafields)
+                                        
+                                        return existing_id
+                                    else:
+                                        print(f"   ❌ Update failed: {update_response.status_code}")
+                                        return None
+                except Exception as e:
+                    print(f"   ❌ Search exception: {e}")
+                
+                return None
+            else:
+                print(f"   ❌ Creation failed: {response.status_code} - {errors}")
+                return None
+        else:
+            print(f"   ❌ Unexpected error: {response.status_code} - {response.text[:200]}")
             return None
             
-        pr = response.json()["product"]
-        pid = pr["id"]
-        for mf in metafields:
-            mf.update({"owner_id":pid,"owner_resource":"product"})
-            requests.post(
-                f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
-                headers=HEAD_SHOP, json={"metafield":mf}
-            )
-    
-    # Assign product to correct Shopify collection based on product_type
-    if pid:
-        product_type = payload["product"].get("product_type", "")
-        if product_type in ["Drivaksler", "Mellomaksler"]:
-            assign_to_collection(pid, product_type)
-    
-    return pid
+    except Exception as e:
+        print(f"   ❌ Exception creating/updating product: {e}")
+        return None
+
+def ensure_product(shop_ids:dict, payload:dict, metafields:list):
+    """Legacy function - now calls optimized version"""
+    return create_or_update_product_optimized(payload, metafields)
 
 # ---------- Flask API ----------
 from flask import Flask, jsonify, request
@@ -278,12 +505,107 @@ def health_check():
 @app.post("/sync/full")
 def sync_full():
     try:
-        print("🔄 Starting sync...")
+        print("🔄 Starting optimized sync with database sync...")
+        
+        # Initialize database
+        init_db()
+        
         rack_all   = fetch_all_rackbeat()
         filtered   = [p for p in rack_all if filter_keep(p)]
         print(f"✅  Rackbeat total {len(rack_all)} → holder {len(filtered)}")
 
-        print("🔄 Getting Shopify product IDs...")
+        if not filtered:
+            print("⚠️  No products to sync after filtering")
+            return jsonify({
+                "rackbeat_total": len(rack_all),
+                "filtered_kept": 0,
+                "shopify_synced": 0,
+                "message": "No products met filtering criteria"
+            })
+
+        print("🔄 Processing products directly (optimized)...")
+        success_count = 0
+        kept_skus = set()
+        
+        for i, p in enumerate(filtered):
+            try:
+                print(f"📦 Processing {i+1}/{len(filtered)}: {p.get('number', 'N/A')} - {p.get('name', 'N/A')[:40]}")
+                payload, mfs = map_to_shop_payload(p)
+                
+                # Use optimized create/update function
+                pid = create_or_update_product_optimized(payload, mfs)
+                
+                if pid is not None:
+                    success_count += 1
+                    sku = payload["product"]["variants"][0]["sku"]
+                    kept_skus.add(sku)
+                    
+                    # Assign to collection
+                    product_type = payload["product"].get("product_type", "")
+                    if product_type in ["Drivaksler", "Mellomaksler"]:
+                        try:
+                            assign_result = assign_to_collection(pid, product_type)
+                            if assign_result:
+                                print(f"   ✅ Assigned to {product_type} collection")
+                            else:
+                                print(f"   ⚠️ Collection assignment failed for {product_type}")
+                        except Exception as e:
+                            print(f"   ⚠️ Collection assignment error: {e}")
+                    
+                    print(f"   ✅ Product synced successfully (ID: {pid})")
+                else:
+                    print(f"   ❌ Product sync failed")
+                
+                # Small delay to avoid rate limits
+                if i % 10 == 0 and i > 0:
+                    print(f"   💤 Brief pause after {i} products...")
+                    time.sleep(2)
+                    
+            except Exception as e:
+                print(f"⚠️  Error processing product {p.get('number', 'N/A')}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+
+        print(f"✅ Optimized sync with database sync completed!")
+        print(f"   Products processed: {len(filtered)}")
+        print(f"   Successful syncs: {success_count}")
+        print(f"   Success rate: {success_count/len(filtered)*100:.1f}%")
+        
+        # Verify database sync
+        session = SessionLocal()
+        try:
+            db_count = session.query(ShopifyProduct).count()
+            metafield_count = session.query(ProductMetafield).count()
+            print(f"   Database products: {db_count}")
+            print(f"   Database metafields: {metafield_count}")
+        finally:
+            session.close()
+        
+        return jsonify({
+            "rackbeat_total": len(rack_all),
+            "filtered_kept":  len(filtered),
+            "shopify_synced": success_count,
+            "success_rate": f"{success_count/len(filtered)*100:.1f}%",
+            "message": "Optimized sync completed successfully"
+        })
+        
+    except Exception as e:
+        print(f"❌ Sync error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.post("/sync/legacy")
+def sync_full_legacy():
+    """Legacy sync method using get_all_shopify_ids (kept for backup)"""
+    try:
+        print("🔄 Starting legacy sync...")
+        rack_all   = fetch_all_rackbeat()
+        filtered   = [p for p in rack_all if filter_keep(p)]
+        print(f"✅  Rackbeat total {len(rack_all)} → holder {len(filtered)}")
+
+        print("🔄 Getting Shopify product IDs (legacy method)...")
         shop_ids   = get_all_shopify_ids()
         kept_skus  = set()
 
@@ -312,14 +634,14 @@ def sync_full():
                 except Exception as e:
                     print(f"⚠️  Error setting {sku} to draft: {e}")
 
-        print("✅ Sync completed!")
+        print("✅ Legacy sync completed!")
         return jsonify({
             "rackbeat_total": len(rack_all),
             "filtered_kept":  len(filtered),
             "shopify_active": len(kept_skus)
         })
     except Exception as e:
-        print(f"❌ Sync error: {e}")
+        print(f"❌ Legacy sync error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
