@@ -8,11 +8,16 @@ Only includes Drivaksel and Mellomaksel products with stock and price
 import os
 import sys
 import requests
-import re
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+import json
+import re
+from sync_service import extract_custom_field
 from datetime import datetime
+
+# Import custom field extraction functions
+from sync_service import get_original_nummer_from_metadata
 
 # Load environment variables
 load_dotenv()
@@ -43,7 +48,7 @@ def fetch_all_rackbeat_products():
     page = 1
     
     while True:
-        url = f"{RACKBEAT_API}?page={page}&limit=250"
+        url = f"{RACKBEAT_API}?page={page}&limit=250&fields=number,name,sales_price,available_quantity,group,metadata"
         response = requests.get(url, headers=HEADERS, timeout=30)
         
         if response.status_code not in [200, 206]:
@@ -69,25 +74,31 @@ def fetch_all_rackbeat_products():
     return all_products
 
 def filter_products(products):
-    """Filter products to only include Drivaksel and Mellomaksel with stock and price"""
+    """Filter products to only include eligible ones for webshop"""
     print("🔍 Filtering products...")
-    filtered = []
+    filtered_products = []
     
-    for product in products:
-        # Check stock and price
-        if not (product.get("available_quantity", 0) >= 1 and product.get("sales_price", 0) > 0):
+    for p in products:
+        # Check stock and price requirements
+        if not (p.get("available_quantity", 0) >= 1 and p.get("sales_price", 0) > 0):
             continue
-            
-        # Check product group
-        group_name = product.get("group", {}).get("name", "")
+        
+        # Check product group - ONLY Drivaksel and Mellomaksel
+        group_name = p.get("group", {}).get("name", "") if isinstance(p.get("group"), dict) else p.get("group", "")
         if group_name not in ["Drivaksel", "Mellomaksel"]:
             continue
-            
-        filtered.append(product)
-        print(f"✅ {product.get('name', 'N/A')[:40]} - Group: {group_name}")
+        
+        # Check i_nettbutikk field (webshop availability) - CRITICAL FILTER
+        i_nettbutikk = extract_custom_field(p, "i_nettbutikk").lower()
+        if i_nettbutikk != "ja":
+            print(f"🚫 FILTERED OUT: '{p.get('name', 'N/A')[:30]}' - i_nettbutikk: '{i_nettbutikk}' (Group: {group_name})")
+            continue
+        
+        print(f"✅ KEEPING: '{p.get('name', 'N/A')[:50]}' (Group: {group_name}, Stock: {p.get('available_quantity', 0)}, Price: {p.get('sales_price', 0)})")
+        filtered_products.append(p)
     
-    print(f"📊 Filtered products: {len(filtered)}")
-    return filtered
+    print(f"📊 Filtered products: {len(filtered_products)}")
+    return filtered_products
 
 def extract_oem_numbers(description):
     """Extract OEM numbers from product description using regex"""
@@ -146,22 +157,15 @@ def sync_to_railway_postgresql(products):
                     datetime.now()
                 ))
                 
-                # Extract OEM numbers from original_nummer field (not description)
-                # Check if Rackbeat has original_nummer field directly
-                oem_string = ""
-                if "original_nummer" in product:
-                    oem_string = str(product["original_nummer"])
-                else:
-                    # Fallback: extract from description if original_nummer field doesn't exist
-                    description = product.get("description", "")
-                    oem_string = extract_oem_numbers(description)
+                # Extract OEM numbers from custom fields metadata
+                oem_string = get_original_nummer_from_metadata(product.get('metadata', []))
                 
                 print(f"   🔍 OEM extracted: {oem_string[:50]}..." if len(oem_string) > 50 else f"   🔍 OEM extracted: {oem_string}")
                 
                 # Insert metafields
                 metafields_data = {
                     "number": product.get("number", ""),
-                    "original_nummer": oem_string,
+                    "Original_nummer": oem_string,
                     "product_group": product.get("group", {}).get("name", ""),
                     "i_nettbutikk": "ja",
                     "available_quantity": str(product.get("available_quantity", 0)),
