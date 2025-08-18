@@ -225,7 +225,7 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
 
 @app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
-    """Search for car parts by license plate - FAST COMPATIBILITY MATRIX VERSION"""
+    """Search for car parts by license plate - HYBRID COMPATIBILITY SYSTEM"""
     if request.method == 'POST':
         data = request.get_json() or {}
         regnr = data.get('license_plate', '').upper()
@@ -235,12 +235,12 @@ def car_parts_search():
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
     
-    print(f"🚗 Starting FAST MATRIX car parts search for license plate: {regnr}")
+    print(f"🚗 Starting HYBRID car parts search for license plate: {regnr}")
     
     try:
-        # Use the fast compatibility matrix API
-        from fast_compatibility_api import fast_car_parts_search_api
-        result = fast_car_parts_search_api(regnr)
+        # Use the hybrid compatibility system
+        from hybrid_compatibility import hybrid_car_parts_search
+        result = hybrid_car_parts_search(regnr)
         
         if 'error' in result:
             return jsonify(result), 500
@@ -248,31 +248,10 @@ def car_parts_search():
         return jsonify(result)
         
     except Exception as e:
-        print(f"❌ Error in fast matrix car_parts_search: {e}")
+        print(f"❌ Error in hybrid car_parts_search: {e}")
         import traceback
         traceback.print_exc()
-        
-        # Fallback to optimized search if matrix fails
-        try:
-            print("🔄 Falling back to optimized search...")
-            from optimized_search import optimized_car_parts_search
-            result = optimized_car_parts_search(regnr)
-            
-            if 'error' in result:
-                return jsonify(result), 500
-            
-            # Add fallback indicator
-            result['fallback_used'] = True
-            result['fallback_reason'] = str(e)
-            return jsonify(result)
-            
-        except Exception as fallback_error:
-            print(f"❌ Fallback also failed: {fallback_error}")
-            return jsonify({
-                'error': 'Both matrix and fallback search failed', 
-                'matrix_error': str(e),
-                'fallback_error': str(fallback_error)
-            }), 500
+        return jsonify({'error': 'Hybrid search system error', 'details': str(e)}), 500
 
 @app.route('/api/part_number_search')
 def part_number_search():
