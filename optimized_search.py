@@ -67,7 +67,6 @@ def get_available_oems_optimized():
                 AND pm_oem.value IS NOT NULL 
                 AND pm_oem.value != ''
                 AND pm_oem.value != 'N/A'
-            LIMIT 100
         """)
         
         result = session.execute(raw_query)
@@ -309,7 +308,7 @@ def optimized_car_parts_search(license_plate):
             vehicle_info['make'], 
             vehicle_info['model'], 
             vehicle_info['year'],
-            max_oems=30  # Limit for performance
+            max_oems=len(available_oems)  # Test ALL available OEMs for complete coverage
         )
         step3_time = time.time() - step3_start
         print(f"⏱️  Step 3 completed in {step3_time:.2f}s (found {len(compatible_oems)} compatible)")
