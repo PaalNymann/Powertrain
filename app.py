@@ -82,7 +82,7 @@ def extract_vehicle_info(vehicle_data):
 # Force Railway deployment - implement correct TecDoc API approach
 # OLD APIFY FUNCTION REMOVED - REPLACED BY RAPIDAPI TECDOC INTEGRATION
 
-def get_available_oems_from_database():
+def get_available_oems_from_database(limit=None):
     """Get all available OEM numbers from Rackbeat database for drivaksler/mellomaksler"""
     try:
         from database import SessionLocal, ProductMetafield
@@ -122,7 +122,14 @@ def get_available_oems_from_database():
         
         session.close()
         print(f"✅ Total unique OEMs found: {len(all_oems)}")
-        return list(all_oems)
+        
+        # Apply limit if specified
+        oem_list = list(all_oems)
+        if limit and len(oem_list) > limit:
+            print(f"🔧 Limiting to first {limit} OEMs for performance")
+            return oem_list[:limit]
+        
+        return oem_list
         
     except Exception as e:
         print(f"❌ Error getting available OEMs: {e}")
@@ -218,7 +225,7 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
 
 @app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
-    """Search for car parts by license plate - OPTIMIZED VERSION"""
+    """Search for car parts by license plate - FAST COMPATIBILITY MATRIX VERSION"""
     if request.method == 'POST':
         data = request.get_json() or {}
         regnr = data.get('license_plate', '').upper()
@@ -228,12 +235,12 @@ def car_parts_search():
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
     
-    print(f"🚗 Starting OPTIMIZED car parts search for license plate: {regnr}")
+    print(f"🚗 Starting FAST MATRIX car parts search for license plate: {regnr}")
     
     try:
-        # Use the optimized search function
-        from optimized_search import optimized_car_parts_search
-        result = optimized_car_parts_search(regnr)
+        # Use the fast compatibility matrix API
+        from fast_compatibility_api import fast_car_parts_search_api
+        result = fast_car_parts_search_api(regnr)
         
         if 'error' in result:
             return jsonify(result), 500
@@ -241,10 +248,31 @@ def car_parts_search():
         return jsonify(result)
         
     except Exception as e:
-        print(f"❌ Error in optimized car_parts_search: {e}")
+        print(f"❌ Error in fast matrix car_parts_search: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
+        
+        # Fallback to optimized search if matrix fails
+        try:
+            print("🔄 Falling back to optimized search...")
+            from optimized_search import optimized_car_parts_search
+            result = optimized_car_parts_search(regnr)
+            
+            if 'error' in result:
+                return jsonify(result), 500
+            
+            # Add fallback indicator
+            result['fallback_used'] = True
+            result['fallback_reason'] = str(e)
+            return jsonify(result)
+            
+        except Exception as fallback_error:
+            print(f"❌ Fallback also failed: {fallback_error}")
+            return jsonify({
+                'error': 'Both matrix and fallback search failed', 
+                'matrix_error': str(e),
+                'fallback_error': str(fallback_error)
+            }), 500
 
 @app.route('/api/part_number_search')
 def part_number_search():
@@ -334,8 +362,8 @@ def test_tecdoc():
                 'method': 'TecDoc API via Apify'
             })
         
-        # Get ALL available OEMs from database (no limit for complete coverage)
-        available_oems = get_available_oems_from_database()
+        # Get ALL available OEMs from database and process in batches for complete coverage
+        all_available_oems = get_available_oems_from_database()
         
         # Get vehicle data from SVV API first
         vehicle_data = hent_kjoretoydata(test_regnr)

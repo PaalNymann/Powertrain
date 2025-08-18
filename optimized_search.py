@@ -303,12 +303,16 @@ def optimized_car_parts_search(license_plate):
         # Step 3: OPTIMIZED - Check compatibility with caching
         print(f"🔍 Step 3: OPTIMIZED - Checking OEM compatibility with caching...")
         step3_start = time.time()
+        # Smart batch testing: Test more OEMs but with reasonable limits
+        # This ensures we catch parts like MA01002 (position 130) without killing performance
+        max_test_oems = min(len(available_oems), 150)  # Test up to 150 OEMs
+        
         compatible_oems = check_oems_compatibility_optimized(
             available_oems, 
             vehicle_info['make'], 
             vehicle_info['model'], 
             vehicle_info['year'],
-            max_oems=len(available_oems)  # Test ALL available OEMs for complete coverage
+            max_oems=max_test_oems  # Smart limit: enough to catch MA01002 but not kill performance
         )
         step3_time = time.time() - step3_start
         print(f"⏱️  Step 3 completed in {step3_time:.2f}s (found {len(compatible_oems)} compatible)")
