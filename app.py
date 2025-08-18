@@ -211,7 +211,7 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
 
 @app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
-    """Search for car parts by license plate"""
+    """Search for car parts by license plate - OPTIMIZED VERSION"""
     if request.method == 'POST':
         data = request.get_json() or {}
         regnr = data.get('license_plate', '').upper()
@@ -221,106 +221,20 @@ def car_parts_search():
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
     
-    print(f"🚗 Starting car parts search for license plate: {regnr}")
+    print(f"🚗 Starting OPTIMIZED car parts search for license plate: {regnr}")
     
     try:
-        # Step 1: Get vehicle data from SVV
-        print(f"📡 Step 1: Getting vehicle data from SVV for {regnr}")
-        vehicle_data = hent_kjoretoydata(regnr)
+        # Use the optimized search function
+        from optimized_search import optimized_car_parts_search
+        result = optimized_car_parts_search(regnr)
         
-        print(f"📦 Raw vehicle data: {vehicle_data}")
+        if 'error' in result:
+            return jsonify(result), 500
         
-        if not vehicle_data:
-            return jsonify({'error': 'Could not retrieve vehicle data'}), 500
-        
-        # Extract vehicle info
-        vehicle_info = extract_vehicle_info(vehicle_data)
-        print(f"🔍 Extracted vehicle info: {vehicle_info}")
-        
-        if not vehicle_info:
-            return jsonify({'error': 'Could not extract vehicle info'}), 500
-        
-        print(f"✅ Vehicle info extracted: {vehicle_info}")
-        
-        # Step 2: NEW STRATEGY - Get available OEMs from database and check TecDoc compatibility
-        print(f"📋 Step 2: Getting available OEMs from Rackbeat database (limit to first 20 for performance)")
-        available_oems = get_available_oems_from_database()[:20]  # Reduced limit for better performance
-        print(f"🔍 Found {len(available_oems)} available OEMs in database (limited to 20 for performance)")
-        
-        if not available_oems:
-            return jsonify({
-                'vehicle_info': vehicle_info,
-                'available_oems': 0,
-                'compatible_oems': [],
-                'matching_products': [],
-                'message': 'No OEMs available in database'
-            })
-        
-        # Step 3: Check which OEMs are compatible with this vehicle using RapidAPI TecDoc
-        print(f"🔍 Step 3: Checking OEM compatibility with {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
-        compatible_oems = check_oems_compatibility_with_vehicle(
-            available_oems[:50],  # Test first 50 to avoid timeout
-            vehicle_info['make'], 
-            vehicle_info['model'], 
-            vehicle_info['year']
-        )
-        
-        print(f"✅ Found {len(compatible_oems)} compatible OEMs")
-        
-        if not compatible_oems:
-            return jsonify({
-                'vehicle_info': vehicle_info,
-                'available_oems': len(available_oems),
-                'compatible_oems': [],
-                'matching_products': [],
-                'message': f'No compatible OEMs found for this vehicle (tested {min(50, len(available_oems))} OEMs)'
-            })
-        
-        # Step 4: Get products for compatible OEMs
-        print(f"🛍️ Step 4: Getting products for compatible OEMs")
-        
-        all_matching_products = []
-        
-        for oem_number in compatible_oems:
-            try:
-                matching_products = search_products_by_oem(oem_number)
-                
-                if matching_products:
-                    print(f"🔍 Found {len(matching_products)} products for OEM: {oem_number}")
-                    
-                    # Add OEM number to each product for reference
-                    for product in matching_products:
-                        product['matched_oem'] = oem_number
-                    
-                    all_matching_products.extend(matching_products)
-                else:
-                    print(f"🔍 No products found for OEM: {oem_number}")
-                    
-            except Exception as e:
-                print(f"❌ Error searching for OEM {oem_number}: {e}")
-                continue
-        
-        # Remove duplicates based on product ID
-        unique_products = {}
-        for product in all_matching_products:
-            product_id = product.get('id')
-            if product_id and product_id not in unique_products:
-                unique_products[product_id] = product
-        
-        final_products = list(unique_products.values())
-        
-        print(f"✅ Found {len(final_products)} unique matching Shopify products")
-        
-        return jsonify({
-            'vehicle_info': vehicle_info,
-            'available_oems': len(available_oems),
-            'compatible_oems': len(compatible_oems),
-            'shopify_parts': final_products,  
-            'message': f'Found {len(final_products)} compatible parts'
-        })        
+        return jsonify(result)
         
     except Exception as e:
-        print(f"❌ Error in car_parts_search: {e}")
+        print(f"❌ Error in optimized car_parts_search: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
@@ -803,6 +717,29 @@ def raw_database_query():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache/stats')
+def cache_stats_endpoint():
+    """Get TecDoc cache statistics"""
+    try:
+        from optimized_search import get_cache_stats
+        stats = get_cache_stats()
+        return jsonify({
+            'message': 'Cache statistics retrieved',
+            'cache_stats': stats
+        })
+    except Exception as e:
+        return jsonify({'error': 'Failed to get cache stats', 'details': str(e)}), 500
+
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache_endpoint():
+    """Clear TecDoc cache"""
+    try:
+        from optimized_search import clear_tecdoc_cache
+        clear_tecdoc_cache()
+        return jsonify({'message': 'Cache cleared successfully'})
+    except Exception as e:
+        return jsonify({'error': 'Failed to clear cache', 'details': str(e)}), 500
 
 @app.route('/api/database/inspect')
 def inspect_database():
