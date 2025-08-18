@@ -162,6 +162,8 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
                     # Normalize brand names for better matching
                     if target_brand == 'VOLKSWAGEN':
                         target_brand = 'VW'
+                    elif 'MERCEDES' in target_brand or target_brand == 'MERCEDES-BENZ':
+                        target_brand = 'MERCEDES'
                     
                     # Direct brand match (exact or contains)
                     brand_match = False
@@ -170,6 +172,11 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
                     elif target_brand in manufacturer_name or manufacturer_name in target_brand:
                         # Only allow partial matches for reasonable cases
                         if len(target_brand) >= 3 and len(manufacturer_name) >= 3:
+                            brand_match = True
+                    
+                    # Mercedes-specific matching
+                    if 'MERCEDES' in brand.upper() or brand.upper() == 'MERCEDES-BENZ':
+                        if 'MERCEDES' in manufacturer_name or manufacturer_name == 'MERCEDES-BENZ':
                             brand_match = True
                     
                     if brand_match:
