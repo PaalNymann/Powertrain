@@ -334,6 +334,9 @@ def test_tecdoc():
                 'method': 'TecDoc API via Apify'
             })
         
+        # Get available OEMs from database (limit for performance)
+        available_oems = get_available_oems_from_database(limit=50)
+        
         # Get vehicle data from SVV API first
         vehicle_data = hent_kjoretoydata(test_regnr)
         if not vehicle_data:
