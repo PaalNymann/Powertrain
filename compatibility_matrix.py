@@ -6,6 +6,8 @@ Fast product search using pre-computed vehicle-product compatibility
 
 import time
 import os
+import json
+import psycopg2
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Index, text
 from sqlalchemy.ext.declarative import declarative_base
@@ -17,6 +19,19 @@ from rapidapi_tecdoc import search_oem_in_tecdoc
 RAILWAY_DATABASE_URL = 'postgresql://postgres:pmTNRdLNPAwZTYvtBFsqvfmjUOoNEuqM@shinkansen.proxy.rlwy.net:13074/railway'
 
 Base = declarative_base()
+
+def get_db_connection():
+    """Get direct PostgreSQL connection for raw SQL queries"""
+    try:
+        # Try Railway database first
+        database_url = os.getenv('DATABASE_URL', RAILWAY_DATABASE_URL)
+        if database_url:
+            return psycopg2.connect(database_url)
+        else:
+            raise Exception("No database URL available")
+    except Exception as e:
+        print(f"⚠️ Database connection failed: {e}")
+        raise
 
 class VehicleProductCompatibility(Base):
     """
@@ -290,6 +305,87 @@ def build_compatibility_matrix(vehicle_types=None):
         import traceback
         traceback.print_exc()
         return False
+
+def fast_compatibility_lookup(make, model, year):
+    """
+    Fast lookup of compatible products from pre-computed matrix
+    Returns list of compatible products or empty list if not found
+    """
+    try:
+        # Connect to database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Normalize vehicle info for consistent lookup
+        vehicle_key = f"{make.upper()} {model.upper()} {year}"
+        
+        print(f"🔍 FAST LOOKUP: {vehicle_key}")
+        
+        # Query compatibility matrix
+        cursor.execute("""
+            SELECT product_data 
+            FROM compatibility_matrix 
+            WHERE vehicle_key = %s
+        """, (vehicle_key,))
+        
+        results = cursor.fetchall()
+        
+        if results:
+            # Combine all compatible products from all matching rows
+            all_products = []
+            for row in results:
+                product_data = json.loads(row[0])
+                all_products.append(product_data)
+            
+            print(f"⚡ Found {len(all_products)} compatible products in matrix")
+            return all_products
+        else:
+            print(f"📭 No compatibility data found for {vehicle_key}")
+            return []
+            
+    except Exception as e:
+        print(f"❌ Error in fast lookup: {e}")
+        return []
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+def cache_compatibility_result(make, model, year, compatible_products):
+    """
+    Cache compatibility results for future fast lookup
+    """
+    try:
+        # Connect to database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Normalize vehicle info for consistent storage
+        vehicle_key = f"{make.upper()} {model.upper()} {year}"
+        
+        print(f"💾 CACHING: {len(compatible_products)} products for {vehicle_key}")
+        
+        # Store each product as a separate row for consistency with existing matrix
+        for product in compatible_products:
+            product_json = json.dumps(product)
+            
+            # Insert or update (upsert) the compatibility data
+            cursor.execute("""
+                INSERT INTO compatibility_matrix (vehicle_key, product_data, created_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (vehicle_key, product_data) 
+                DO UPDATE SET created_at = NOW()
+            """, (vehicle_key, product_json))
+        
+        conn.commit()
+        print(f"✅ Cached {len(compatible_products)} products for {vehicle_key}")
+        
+    except Exception as e:
+        print(f"❌ Error caching compatibility result: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 def fast_compatibility_lookup(vehicle_make, vehicle_model, vehicle_year):
     """
