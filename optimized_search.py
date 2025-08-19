@@ -94,91 +94,155 @@ def get_available_oems_optimized():
 
 def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20):
     """
-    OPTIMIZED: Check OEM compatibility with VEHICLE-SPECIFIC TecDoc checking
-    Performance improvement: ~70% faster with caching + CORRECT model filtering
+    OPTIMIZED: Check OEM compatibility with FAST model filtering
+    Performance improvement: ~70% faster with caching + SMART model filtering
     """
     compatible_oems = []
     
-    print(f"🚀 OPTIMIZED: Checking VEHICLE-SPECIFIC compatibility for {brand} {model} {year}")
-    print(f"📋 Processing {min(len(oem_list), max_oems)} OEMs with vehicle-specific TecDoc...")
+    print(f"🚀 OPTIMIZED: Checking compatibility for {brand} {model} {year}")
+    print(f"📋 Processing {min(len(oem_list), max_oems)} OEMs with FAST model filtering...")
     
     # Limit OEMs for performance
     limited_oems = oem_list[:max_oems]
     
-    # Import the correct TecDoc function for vehicle-specific checking
-    from rapidapi_tecdoc import check_oem_compatibility_with_vehicle
+    # Check cache first for all OEMs
+    cached_results = {}
+    uncached_oems = []
     
-    # Check each OEM for specific vehicle compatibility
     for oem in limited_oems:
+        cached_result = get_cached_tecdoc_result(oem)
+        if cached_result is not None:
+            cached_results[oem] = cached_result
+            print(f"💾 Using cached result for OEM: {oem}")
+        else:
+            uncached_oems.append(oem)
+    
+    print(f"💾 Found {len(cached_results)} cached results, {len(uncached_oems)} need API calls")
+    
+    # Process uncached OEMs with API calls
+    for oem in uncached_oems:
         try:
-            # Create cache key that includes vehicle info for vehicle-specific caching
-            vehicle_cache_key = f"{oem}_{brand}_{model}_{year}"
-            cached_result = get_cached_tecdoc_result(vehicle_cache_key)
-            
-            if cached_result is not None:
-                print(f"💾 Using cached vehicle-specific result for OEM: {oem}")
-                if cached_result.get('compatible', False):
-                    compatible_oems.append(oem)
-                continue
-            
-            # Use TecDoc vehicle-specific compatibility check
-            print(f"🔍 Checking OEM {oem} for {brand} {model} {year}...")
-            is_compatible = check_oem_compatibility_with_vehicle(oem, brand, model, int(year))
-            
-            # Cache the vehicle-specific result
-            cache_result = {'compatible': is_compatible}
-            cache_tecdoc_result(vehicle_cache_key, cache_result)
-            
-            if is_compatible:
-                print(f"✅ OEM {oem} is compatible with {brand} {model} {year}")
-                compatible_oems.append(oem)
-            else:
-                print(f"❌ OEM {oem} is NOT compatible with {brand} {model} {year}")
+            result = search_oem_in_tecdoc(oem)
+            cache_tecdoc_result(oem, result)  # Cache the result
+            cached_results[oem] = result
             
             # Small delay to avoid rate limiting
-            time.sleep(0.2)
+            time.sleep(0.1)
             
         except Exception as e:
-            print(f"❌ Error checking OEM {oem} for vehicle compatibility: {e}")
+            print(f"❌ Error checking OEM {oem}: {e}")
+            cached_results[oem] = {'found': False}
             continue
     
-    print(f"🎯 VEHICLE-SPECIFIC: Found {len(compatible_oems)} compatible OEMs for {brand} {model} {year}")
+    # Process all results (cached + new) with SMART model filtering
+    for oem, result in cached_results.items():
+        if result.get('found') and result.get('articles'):
+            articles = result.get('articles', [])
+            
+            # SMART model filtering logic
+            is_compatible = False
+            target_brand = brand.upper()
+            target_model = model.upper()
+            
+            # Normalize brand names
+            if target_brand == 'VOLKSWAGEN':
+                target_brand = 'VW'
+            
+            for article in articles:
+                manufacturer_name = article.get('manufacturerName', '').upper()
+                product_name = article.get('articleProductName', '').upper()
+                
+                # IMPROVED: Check both brand AND model compatibility
+                if is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name):
+                    print(f"✅ OEM {oem} compatible: {manufacturer_name} for {target_model}")
+                    is_compatible = True
+                    break
+            
+            if is_compatible:
+                compatible_oems.append(oem)
+    
+    print(f"🎯 SMART FILTERING: Found {len(compatible_oems)} compatible OEMs for {brand} {model}")
     return compatible_oems
+
+def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name):
+    """
+    SMART: Check both brand AND model compatibility to avoid returning all brand parts
+    """
+    # Step 1: Brand compatibility check
+    normalized_target_brand = target_brand
+    if 'MERCEDES' in target_brand or target_brand == 'MERCEDES-BENZ':
+        normalized_target_brand = 'MERCEDES'
+    
+    # Brand match check
+    brand_match = False
+    
+    # Direct brand match
+    if normalized_target_brand == manufacturer_name or manufacturer_name == normalized_target_brand:
+        brand_match = True
+    
+    # Mercedes-specific matching
+    elif 'MERCEDES' in target_brand or target_brand == 'MERCEDES-BENZ':
+        if 'MERCEDES' in manufacturer_name or manufacturer_name == 'MERCEDES-BENZ':
+            brand_match = True
+    
+    # Partial brand match (for reasonable cases)
+    elif normalized_target_brand in manufacturer_name or manufacturer_name in normalized_target_brand:
+        if len(normalized_target_brand) >= 3 and len(manufacturer_name) >= 3:
+            brand_match = True
+    
+    # VW Group compatibility
+    elif normalized_target_brand in ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']:
+        vw_group = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
+        if any(vw_brand == manufacturer_name for vw_brand in vw_group):
+            brand_match = True
+    
+    # If no brand match, return False immediately
+    if not brand_match:
+        return False
+    
+    # Step 2: Model compatibility check (NEW SMART FILTERING)
+    # Extract key model identifiers from target model
+    model_keywords = []
+    
+    # Common model patterns and their keywords
+    if 'GLK' in target_model:
+        model_keywords.extend(['GLK', 'GLC'])  # GLK became GLC
+    elif 'C-CLASS' in target_model or 'C 220' in target_model:
+        model_keywords.extend(['C-CLASS', 'C220', 'C 220'])
+    elif 'E-CLASS' in target_model or 'E 220' in target_model:
+        model_keywords.extend(['E-CLASS', 'E220', 'E 220'])
+    elif 'V70' in target_model:
+        model_keywords.extend(['V70', 'XC70'])  # Related Volvo models
+    elif 'GOLF' in target_model:
+        model_keywords.extend(['GOLF', 'JETTA', 'PASSAT'])  # VW platform sharing
+    else:
+        # Generic: use main model name
+        model_parts = target_model.split()
+        if model_parts:
+            model_keywords.append(model_parts[0])  # First word (e.g., "GLK" from "GLK 220 CDI")
+    
+    # Check if product name mentions any of the model keywords
+    for keyword in model_keywords:
+        if keyword in product_name:
+            print(f"🎯 Model match found: {keyword} in {product_name}")
+            return True
+    
+    # Fallback: if brand matches but no specific model match, be more restrictive
+    # Only allow if product name is very generic (likely universal parts)
+    generic_terms = ['UNIVERSAL', 'STANDARD', 'GENERIC', 'COMMON']
+    if any(term in product_name for term in generic_terms):
+        print(f"🔧 Generic part allowed: {product_name}")
+        return True
+    
+    print(f"❌ Model mismatch: {target_model} not found in {product_name}")
+    return False
 
 def is_brand_compatible(target_brand, manufacturer_name, product_name, model):
     """
-    OPTIMIZED: Fast brand compatibility check with Mercedes support
+    LEGACY: Fast brand compatibility check (kept for backward compatibility)
     """
-    # Normalize Mercedes brand names
-    normalized_target = target_brand
-    if 'MERCEDES' in target_brand or target_brand == 'MERCEDES-BENZ':
-        normalized_target = 'MERCEDES'
-    
-    # Direct brand match
-    if normalized_target == manufacturer_name or manufacturer_name == normalized_target:
-        return True
-    
-    # Mercedes-specific matching
-    if 'MERCEDES' in target_brand or target_brand == 'MERCEDES-BENZ':
-        if 'MERCEDES' in manufacturer_name or manufacturer_name == 'MERCEDES-BENZ':
-            return True
-    
-    # Partial brand match (for reasonable cases)
-    if normalized_target in manufacturer_name or manufacturer_name in normalized_target:
-        if len(normalized_target) >= 3 and len(manufacturer_name) >= 3:
-            return True
-    
-    # Product name mentions brand or model
-    if normalized_target in product_name or model.upper() in product_name:
-        return True
-    
-    # VW Group compatibility
-    vw_group = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
-    if normalized_target in vw_group:
-        if any(vw_brand == manufacturer_name for vw_brand in vw_group):
-            return True
-    
-    return False
+    # Use the new smart function
+    return is_brand_and_model_compatible(target_brand, model, manufacturer_name, product_name)
 
 def search_products_by_oem_optimized(oem_number):
     """
