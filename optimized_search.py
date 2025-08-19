@@ -153,7 +153,7 @@ def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20
                 product_name = article.get('articleProductName', '').upper()
                 
                 # IMPROVED: Check both brand AND model compatibility
-                if is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name):
+                if is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name, year):
                     print(f"✅ OEM {oem} compatible: {manufacturer_name} for {target_model}")
                     is_compatible = True
                     break
@@ -164,7 +164,7 @@ def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20
     print(f"🎯 SMART FILTERING: Found {len(compatible_oems)} compatible OEMs for {brand} {model}")
     return compatible_oems
 
-def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name):
+def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name, year=None):
     """
     SMART: Check both brand AND model compatibility to avoid returning all brand parts
     """
@@ -227,25 +227,25 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
             print(f"🎯 Model match found: {keyword} in {product_name}")
             return True
     
-    # RELAXED FALLBACK: Allow brand matches with reasonable product descriptions
-    # Many TecDoc products have generic names like "Drivaksel Mercedes" without specific model
+    # STRICT FALLBACK: Only allow very specific cases for brand matches
     if brand_match:
-        # Allow parts that mention the brand and are automotive parts
-        automotive_terms = ['DRIVAKSEL', 'MELLOMAKSEL', 'CV', 'JOINT', 'SHAFT', 'AXLE', 'DRIVE']
-        if any(term in product_name for term in automotive_terms):
-            print(f"🔧 Automotive part allowed for brand: {product_name}")
+        # Only allow if product name explicitly mentions "UNIVERSAL" or "COMPATIBLE"
+        universal_terms = ['UNIVERSAL', 'COMPATIBLE', 'FITS ALL']
+        if any(term in product_name for term in universal_terms):
+            print(f"🔧 Universal part allowed: {product_name}")
             return True
         
-        # Allow generic/universal terms
-        generic_terms = ['UNIVERSAL', 'STANDARD', 'GENERIC', 'COMMON', 'COMPATIBLE']
-        if any(term in product_name for term in generic_terms):
-            print(f"🔧 Generic part allowed: {product_name}")
-            return True
-        
-        # If product name is short and simple, likely a part number - allow it
-        if len(product_name.split()) <= 3:
-            print(f"🔧 Simple part name allowed: {product_name}")
-            return True
+        # Allow if product name contains year range that includes our vehicle year
+        # This catches parts like "Mercedes 2008-2012" for a 2010 vehicle
+        import re
+        year_patterns = re.findall(r'(\d{4})-(\d{4})', product_name)
+        for start_year, end_year in year_patterns:
+            try:
+                if int(start_year) <= int(year) <= int(end_year):
+                    print(f"🔧 Year range match: {start_year}-{end_year} includes {year}")
+                    return True
+            except ValueError:
+                continue
     
     print(f"❌ Model mismatch: {target_model} not found in {product_name}")
     return False
