@@ -225,7 +225,7 @@ def check_oems_compatibility_with_vehicle(oem_list, brand, model, year):
 
 @app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
-    """Search for car parts by license plate - HYBRID COMPATIBILITY SYSTEM"""
+    """Search for car parts by license plate - OPTIMIZED VERSION"""
     if request.method == 'POST':
         data = request.get_json() or {}
         regnr = data.get('license_plate', '').upper()
@@ -235,12 +235,12 @@ def car_parts_search():
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
     
-    print(f"🚗 Starting HYBRID car parts search for license plate: {regnr}")
+    print(f"🚗 Starting OPTIMIZED car parts search for license plate: {regnr}")
     
     try:
-        # Use the hybrid compatibility system
-        from hybrid_compatibility import hybrid_car_parts_search
-        result = hybrid_car_parts_search(regnr)
+        # Use the optimized search function
+        from optimized_search import optimized_car_parts_search
+        result = optimized_car_parts_search(regnr)
         
         if 'error' in result:
             return jsonify(result), 500
@@ -248,10 +248,10 @@ def car_parts_search():
         return jsonify(result)
         
     except Exception as e:
-        print(f"❌ Error in hybrid car_parts_search: {e}")
+        print(f"❌ Error in optimized car_parts_search: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': 'Hybrid search system error', 'details': str(e)}), 500
+        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
 @app.route('/api/part_number_search')
 def part_number_search():
