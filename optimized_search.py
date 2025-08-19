@@ -134,31 +134,15 @@ def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20
             cached_results[oem] = {'found': False}
             continue
     
-    # Process all results (cached + new) with SMART model filtering
+    # Process all results (cached + new) - TRUST TecDoc OEM compatibility
     for oem, result in cached_results.items():
         if result.get('found') and result.get('articles'):
             articles = result.get('articles', [])
             
-            # SMART model filtering logic
-            is_compatible = False
-            target_brand = brand.upper()
-            target_model = model.upper()
-            
-            # Normalize brand names
-            if target_brand == 'VOLKSWAGEN':
-                target_brand = 'VW'
-            
-            for article in articles:
-                manufacturer_name = article.get('manufacturerName', '').upper()
-                product_name = article.get('articleProductName', '').upper()
-                
-                # IMPROVED: Check both brand AND model compatibility
-                if is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name, year):
-                    print(f"✅ OEM {oem} compatible: {manufacturer_name} for {target_model}")
-                    is_compatible = True
-                    break
-            
-            if is_compatible:
+            # TecDoc OEMs are already vehicle-specific - no need for additional filtering
+            # If TecDoc says this OEM is compatible with the vehicle, trust it
+            if articles:  # If we have articles, the OEM is compatible
+                print(f"✅ OEM {oem} compatible: TecDoc confirmed {len(articles)} articles")
                 compatible_oems.append(oem)
     
     print(f"🎯 SMART FILTERING: Found {len(compatible_oems)} compatible OEMs for {brand} {model}")
