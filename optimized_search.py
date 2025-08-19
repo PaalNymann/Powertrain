@@ -94,73 +94,55 @@ def get_available_oems_optimized():
 
 def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20):
     """
-    OPTIMIZED: Check OEM compatibility with caching and batch processing
-    Performance improvement: ~70% faster with caching
+    OPTIMIZED: Check OEM compatibility with VEHICLE-SPECIFIC TecDoc checking
+    Performance improvement: ~70% faster with caching + CORRECT model filtering
     """
     compatible_oems = []
     
-    print(f"🚀 OPTIMIZED: Checking compatibility for {brand} {model} {year}")
-    print(f"📋 Processing {min(len(oem_list), max_oems)} OEMs with caching...")
+    print(f"🚀 OPTIMIZED: Checking VEHICLE-SPECIFIC compatibility for {brand} {model} {year}")
+    print(f"📋 Processing {min(len(oem_list), max_oems)} OEMs with vehicle-specific TecDoc...")
     
     # Limit OEMs for performance
     limited_oems = oem_list[:max_oems]
     
-    # Check cache first for all OEMs
-    cached_results = {}
-    uncached_oems = []
+    # Import the correct TecDoc function for vehicle-specific checking
+    from rapidapi_tecdoc import check_oem_compatibility_with_vehicle
     
+    # Check each OEM for specific vehicle compatibility
     for oem in limited_oems:
-        cached_result = get_cached_tecdoc_result(oem)
-        if cached_result is not None:
-            cached_results[oem] = cached_result
-            print(f"💾 Using cached result for OEM: {oem}")
-        else:
-            uncached_oems.append(oem)
-    
-    print(f"💾 Found {len(cached_results)} cached results, {len(uncached_oems)} need API calls")
-    
-    # Process uncached OEMs with API calls
-    for oem in uncached_oems:
         try:
-            result = search_oem_in_tecdoc(oem)
-            cache_tecdoc_result(oem, result)  # Cache the result
-            cached_results[oem] = result
+            # Create cache key that includes vehicle info for vehicle-specific caching
+            vehicle_cache_key = f"{oem}_{brand}_{model}_{year}"
+            cached_result = get_cached_tecdoc_result(vehicle_cache_key)
             
-            # Small delay to avoid rate limiting
-            time.sleep(0.1)
+            if cached_result is not None:
+                print(f"💾 Using cached vehicle-specific result for OEM: {oem}")
+                if cached_result.get('compatible', False):
+                    compatible_oems.append(oem)
+                continue
             
-        except Exception as e:
-            print(f"❌ Error checking OEM {oem}: {e}")
-            cached_results[oem] = {'found': False}
-            continue
-    
-    # Process all results (cached + new)
-    for oem, result in cached_results.items():
-        if result.get('found') and result.get('articles'):
-            articles = result.get('articles', [])
+            # Use TecDoc vehicle-specific compatibility check
+            print(f"🔍 Checking OEM {oem} for {brand} {model} {year}...")
+            is_compatible = check_oem_compatibility_with_vehicle(oem, brand, model, int(year))
             
-            # Optimized brand matching logic
-            is_compatible = False
-            target_brand = brand.upper()
-            
-            # Normalize brand names
-            if target_brand == 'VOLKSWAGEN':
-                target_brand = 'VW'
-            
-            for article in articles:
-                manufacturer_name = article.get('manufacturerName', '').upper()
-                product_name = article.get('articleProductName', '').upper()
-                
-                # Fast brand matching
-                if is_brand_compatible(target_brand, manufacturer_name, product_name, model):
-                    print(f"✅ OEM {oem} compatible: {manufacturer_name}")
-                    is_compatible = True
-                    break
+            # Cache the vehicle-specific result
+            cache_result = {'compatible': is_compatible}
+            cache_tecdoc_result(vehicle_cache_key, cache_result)
             
             if is_compatible:
+                print(f"✅ OEM {oem} is compatible with {brand} {model} {year}")
                 compatible_oems.append(oem)
+            else:
+                print(f"❌ OEM {oem} is NOT compatible with {brand} {model} {year}")
+            
+            # Small delay to avoid rate limiting
+            time.sleep(0.2)
+            
+        except Exception as e:
+            print(f"❌ Error checking OEM {oem} for vehicle compatibility: {e}")
+            continue
     
-    print(f"🎯 OPTIMIZED: Found {len(compatible_oems)} compatible OEMs")
+    print(f"🎯 VEHICLE-SPECIFIC: Found {len(compatible_oems)} compatible OEMs for {brand} {model} {year}")
     return compatible_oems
 
 def is_brand_compatible(target_brand, manufacturer_name, product_name, model):
