@@ -223,16 +223,15 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
             print(f"🎯 Model match found: {keyword} in {product_name}")
             return True
     
-    # STRICT FALLBACK: Only allow very specific cases for brand matches
+    # BALANCED FALLBACK: Allow reasonable brand matches for automotive parts
     if brand_match:
-        # Only allow if product name explicitly mentions "UNIVERSAL" or "COMPATIBLE"
+        # Allow universal/compatible parts
         universal_terms = ['UNIVERSAL', 'COMPATIBLE', 'FITS ALL']
         if any(term in product_name for term in universal_terms):
             print(f"🔧 Universal part allowed: {product_name}")
             return True
         
-        # Allow if product name contains year range that includes our vehicle year
-        # This catches parts like "Mercedes 2008-2012" for a 2010 vehicle
+        # Allow year range matches
         import re
         year_patterns = re.findall(r'(\d{4})-(\d{4})', product_name)
         for start_year, end_year in year_patterns:
@@ -242,6 +241,18 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
                     return True
             except ValueError:
                 continue
+        
+        # BALANCED: Allow automotive parts for the correct brand
+        # This ensures we don't miss legitimate parts due to naming variations
+        automotive_terms = ['DRIVAKSEL', 'MELLOMAKSEL', 'CV', 'JOINT', 'SHAFT', 'AXLE', 'DRIVE']
+        if any(term in product_name for term in automotive_terms):
+            print(f"🔧 Automotive part allowed for {target_brand}: {product_name}")
+            return True
+        
+        # Allow simple part numbers (likely specific parts)
+        if len(product_name.split()) <= 3:
+            print(f"🔧 Simple part name allowed: {product_name}")
+            return True
     
     print(f"❌ Model mismatch: {target_model} not found in {product_name}")
     return False
