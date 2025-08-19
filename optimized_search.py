@@ -134,15 +134,42 @@ def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20
             cached_results[oem] = {'found': False}
             continue
     
-    # Process all results (cached + new) - TRUST TecDoc OEM compatibility
+    # Process all results (cached + new) - OEM-based with balanced secondary filtering
     for oem, result in cached_results.items():
         if result.get('found') and result.get('articles'):
             articles = result.get('articles', [])
             
-            # TecDoc OEMs are already vehicle-specific - no need for additional filtering
-            # If TecDoc says this OEM is compatible with the vehicle, trust it
-            if articles:  # If we have articles, the OEM is compatible
-                print(f"✅ OEM {oem} compatible: TecDoc confirmed {len(articles)} articles")
+            # PRIMARY: Trust TecDoc OEM compatibility
+            # SECONDARY: Basic brand compatibility check to avoid completely unrelated parts
+            is_compatible = False
+            target_brand = brand.upper()
+            
+            # Normalize brand names
+            if target_brand == 'VOLKSWAGEN':
+                target_brand = 'VW'
+            elif 'MERCEDES' in target_brand:
+                target_brand = 'MERCEDES'
+            
+            for article in articles:
+                manufacturer_name = article.get('manufacturerName', '').upper()
+                
+                # Basic brand compatibility check only
+                brand_match = False
+                if target_brand == manufacturer_name:
+                    brand_match = True
+                elif 'MERCEDES' in target_brand and 'MERCEDES' in manufacturer_name:
+                    brand_match = True
+                elif target_brand in ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']:
+                    vw_group = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
+                    if any(vw_brand == manufacturer_name for vw_brand in vw_group):
+                        brand_match = True
+                
+                if brand_match:
+                    print(f"✅ OEM {oem} compatible: {manufacturer_name} matches {target_brand}")
+                    is_compatible = True
+                    break
+            
+            if is_compatible:
                 compatible_oems.append(oem)
     
     print(f"🎯 SMART FILTERING: Found {len(compatible_oems)} compatible OEMs for {brand} {model}")
