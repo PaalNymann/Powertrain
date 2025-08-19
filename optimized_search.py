@@ -166,7 +166,7 @@ def check_oems_compatibility_optimized(oem_list, brand, model, year, max_oems=20
 
 def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name, product_name, year=None):
     """
-    SMART: Check both brand AND model compatibility to avoid returning all brand parts
+    SIMPLE: Only allow exact model matches and universal parts - no complex fallback logic
     """
     # Step 1: Brand compatibility check
     normalized_target_brand = target_brand
@@ -185,11 +185,6 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
         if 'MERCEDES' in manufacturer_name or manufacturer_name == 'MERCEDES-BENZ':
             brand_match = True
     
-    # Partial brand match (for reasonable cases)
-    elif normalized_target_brand in manufacturer_name or manufacturer_name in normalized_target_brand:
-        if len(normalized_target_brand) >= 3 and len(manufacturer_name) >= 3:
-            brand_match = True
-    
     # VW Group compatibility
     elif normalized_target_brand in ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']:
         vw_group = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
@@ -200,89 +195,42 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
     if not brand_match:
         return False
     
-    # Step 2: GENERIC Model compatibility check - works for ALL vehicles
-    # Extract ALL meaningful words from target model for flexible matching
+    # Step 2: SIMPLE Model compatibility - only exact matches
     model_keywords = []
     
-    # Split target model into words and use all significant parts
-    model_parts = target_model.replace('-', ' ').replace('_', ' ').split()
+    # Extract key model identifiers
+    if 'GLK' in target_model.upper():
+        model_keywords = ['GLK']
+    elif 'C-CLASS' in target_model.upper() or 'C220' in target_model.upper():
+        model_keywords = ['C-CLASS', 'C220', 'C 220']
+    elif 'E-CLASS' in target_model.upper():
+        model_keywords = ['E-CLASS']
+    elif 'V70' in target_model.upper():
+        model_keywords = ['V70']
+    elif 'GOLF' in target_model.upper():
+        model_keywords = ['GOLF']
+    else:
+        # Generic: use first word of model
+        model_parts = target_model.split()
+        if model_parts:
+            model_keywords = [model_parts[0].upper()]
     
-    for part in model_parts:
-        # Skip common non-model words
-        if part.upper() not in ['CDI', 'TDI', 'TSI', 'TFSI', 'BLUETEC', 'KOMPRESSOR', 'TURBO', 'DIESEL', 'PETROL', 'AUTOMATIC', 'MANUAL']:
-            model_keywords.append(part.upper())
+    print(f"🔍 Simple model keywords for {target_model}: {model_keywords}")
     
-    # Also add the full model name for exact matches
-    model_keywords.append(target_model.upper())
-    
-    print(f"🔍 Generic model keywords for {target_model}: {model_keywords}")
-    
-    # Check if product name mentions any of the model keywords
+    # Check for exact model matches
     for keyword in model_keywords:
         if keyword in product_name:
-            print(f"🎯 Model match found: {keyword} in {product_name}")
+            print(f"✅ EXACT model match: {keyword} in {product_name}")
             return True
     
-    # BALANCED FALLBACK: Allow reasonable brand matches for automotive parts
+    # Only allow universal parts if no exact match
     if brand_match:
-        # Allow universal/compatible parts
         universal_terms = ['UNIVERSAL', 'COMPATIBLE', 'FITS ALL']
         if any(term in product_name for term in universal_terms):
-            print(f"🔧 Universal part allowed: {product_name}")
-            return True
-        
-        # Allow year range matches
-        import re
-        year_patterns = re.findall(r'(\d{4})-(\d{4})', product_name)
-        for start_year, end_year in year_patterns:
-            try:
-                if int(start_year) <= int(year) <= int(end_year):
-                    print(f"🔧 Year range match: {start_year}-{end_year} includes {year}")
-                    return True
-            except ValueError:
-                continue
-        
-        # BALANCED: Allow automotive parts for the correct brand
-        # This ensures we don't miss legitimate parts due to naming variations
-        automotive_terms = ['DRIVAKSEL', 'MELLOMAKSEL', 'CV', 'JOINT', 'SHAFT', 'AXLE', 'DRIVE']
-        if any(term in product_name for term in automotive_terms):
-            print(f"🔧 Automotive part allowed for {target_brand}: {product_name}")
-            return True
-        
-        # Allow simple part numbers (likely specific parts)
-        if len(product_name.split()) <= 3:
-            print(f"🔧 Simple part name allowed: {product_name}")
+            print(f"✅ Universal part allowed: {product_name}")
             return True
     
-    # FINAL SMART EXCLUSION: Check for incompatible models AFTER all other checks
-    # This catches products that passed through fallback logic but mention incompatible models
-    incompatible_models = []
-    
-    # Define incompatible models for different target models
-    if 'GLK' in target_model.upper():
-        # GLK is a compact SUV - exclude large vehicles and vans
-        incompatible_models = ['SPRINTER', 'ACTROS', 'ATEGO', 'AXOR', 'UNIMOG', 'VARIO', 'VITO', 'VIANO']
-    elif 'C-CLASS' in target_model.upper() or 'C220' in target_model.upper():
-        # C-Class is a sedan - exclude SUVs and commercial vehicles
-        incompatible_models = ['SPRINTER', 'GLK', 'GLC', 'GLE', 'GLS', 'G-CLASS', 'ACTROS', 'ATEGO', 'VITO', 'VIANO']
-    elif 'E-CLASS' in target_model.upper():
-        # E-Class is a larger sedan - exclude SUVs and commercial vehicles
-        incompatible_models = ['SPRINTER', 'GLK', 'GLC', 'GLE', 'GLS', 'G-CLASS', 'ACTROS', 'ATEGO', 'VITO', 'VIANO']
-    elif 'SPRINTER' in target_model.upper():
-        # Sprinter is a commercial van - exclude passenger cars
-        incompatible_models = ['GLK', 'GLC', 'C-CLASS', 'E-CLASS', 'S-CLASS', 'A-CLASS', 'B-CLASS']
-    else:
-        # Generic exclusions for passenger cars
-        if any(term in target_model.upper() for term in ['GOLF', 'PASSAT', 'V70', 'XC70']):
-            incompatible_models = ['SPRINTER', 'CRAFTER', 'TRANSPORTER', 'CADDY', 'VITO', 'VIANO']
-    
-    # Check if product mentions incompatible models - this is the FINAL filter
-    for incompatible in incompatible_models:
-        if incompatible in product_name:
-            print(f"❌ FINAL EXCLUSION: {incompatible} in {product_name} (target: {target_model})")
-            return False
-    
-    print(f"❌ Model mismatch: {target_model} not found in {product_name}")
+    print(f"❌ No exact model match: {target_model} keywords {model_keywords} not found in {product_name}")
     return False
 
 def is_brand_compatible(target_brand, manufacturer_name, product_name, model):
