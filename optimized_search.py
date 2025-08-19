@@ -223,6 +223,33 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
             print(f"🎯 Model match found: {keyword} in {product_name}")
             return True
     
+    # SMART EXCLUSION: Check for incompatible models before allowing brand matches
+    incompatible_models = []
+    
+    # Define incompatible models for different target models
+    if 'GLK' in target_model.upper():
+        # GLK is a compact SUV - exclude large vehicles
+        incompatible_models = ['SPRINTER', 'ACTROS', 'ATEGO', 'AXOR', 'UNIMOG', 'VARIO', 'VITO', 'VIANO']
+    elif 'C-CLASS' in target_model.upper() or 'C220' in target_model.upper():
+        # C-Class is a sedan - exclude SUVs and commercial vehicles
+        incompatible_models = ['SPRINTER', 'GLK', 'GLC', 'GLE', 'GLS', 'G-CLASS', 'ACTROS', 'ATEGO', 'VITO']
+    elif 'E-CLASS' in target_model.upper():
+        # E-Class is a larger sedan - exclude SUVs and commercial vehicles
+        incompatible_models = ['SPRINTER', 'GLK', 'GLC', 'GLE', 'GLS', 'G-CLASS', 'ACTROS', 'ATEGO', 'VITO']
+    elif 'SPRINTER' in target_model.upper():
+        # Sprinter is a commercial van - exclude passenger cars
+        incompatible_models = ['GLK', 'GLC', 'C-CLASS', 'E-CLASS', 'S-CLASS', 'A-CLASS', 'B-CLASS']
+    else:
+        # Generic exclusions for passenger cars
+        if any(term in target_model.upper() for term in ['GOLF', 'PASSAT', 'V70', 'XC70']):
+            incompatible_models = ['SPRINTER', 'CRAFTER', 'TRANSPORTER', 'CADDY']
+    
+    # Check if product mentions incompatible models
+    for incompatible in incompatible_models:
+        if incompatible in product_name:
+            print(f"❌ Incompatible model excluded: {incompatible} in {product_name} (target: {target_model})")
+            return False
+    
     # BALANCED FALLBACK: Allow reasonable brand matches for automotive parts
     if brand_match:
         # Allow universal/compatible parts
