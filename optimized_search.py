@@ -200,26 +200,22 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
     if not brand_match:
         return False
     
-    # Step 2: Model compatibility check (NEW SMART FILTERING)
-    # Extract key model identifiers from target model
+    # Step 2: GENERIC Model compatibility check - works for ALL vehicles
+    # Extract ALL meaningful words from target model for flexible matching
     model_keywords = []
     
-    # Common model patterns and their keywords
-    if 'GLK' in target_model:
-        model_keywords.extend(['GLK', 'GLC'])  # GLK became GLC
-    elif 'C-CLASS' in target_model or 'C 220' in target_model:
-        model_keywords.extend(['C-CLASS', 'C220', 'C 220'])
-    elif 'E-CLASS' in target_model or 'E 220' in target_model:
-        model_keywords.extend(['E-CLASS', 'E220', 'E 220'])
-    elif 'V70' in target_model:
-        model_keywords.extend(['V70', 'XC70'])  # Related Volvo models
-    elif 'GOLF' in target_model:
-        model_keywords.extend(['GOLF', 'JETTA', 'PASSAT'])  # VW platform sharing
-    else:
-        # Generic: use main model name
-        model_parts = target_model.split()
-        if model_parts:
-            model_keywords.append(model_parts[0])  # First word (e.g., "GLK" from "GLK 220 CDI")
+    # Split target model into words and use all significant parts
+    model_parts = target_model.replace('-', ' ').replace('_', ' ').split()
+    
+    for part in model_parts:
+        # Skip common non-model words
+        if part.upper() not in ['CDI', 'TDI', 'TSI', 'TFSI', 'BLUETEC', 'KOMPRESSOR', 'TURBO', 'DIESEL', 'PETROL', 'AUTOMATIC', 'MANUAL']:
+            model_keywords.append(part.upper())
+    
+    # Also add the full model name for exact matches
+    model_keywords.append(target_model.upper())
+    
+    print(f"🔍 Generic model keywords for {target_model}: {model_keywords}")
     
     # Check if product name mentions any of the model keywords
     for keyword in model_keywords:
