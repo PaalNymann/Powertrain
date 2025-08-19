@@ -227,12 +227,25 @@ def is_brand_and_model_compatible(target_brand, target_model, manufacturer_name,
             print(f"🎯 Model match found: {keyword} in {product_name}")
             return True
     
-    # Fallback: if brand matches but no specific model match, be more restrictive
-    # Only allow if product name is very generic (likely universal parts)
-    generic_terms = ['UNIVERSAL', 'STANDARD', 'GENERIC', 'COMMON']
-    if any(term in product_name for term in generic_terms):
-        print(f"🔧 Generic part allowed: {product_name}")
-        return True
+    # RELAXED FALLBACK: Allow brand matches with reasonable product descriptions
+    # Many TecDoc products have generic names like "Drivaksel Mercedes" without specific model
+    if brand_match:
+        # Allow parts that mention the brand and are automotive parts
+        automotive_terms = ['DRIVAKSEL', 'MELLOMAKSEL', 'CV', 'JOINT', 'SHAFT', 'AXLE', 'DRIVE']
+        if any(term in product_name for term in automotive_terms):
+            print(f"🔧 Automotive part allowed for brand: {product_name}")
+            return True
+        
+        # Allow generic/universal terms
+        generic_terms = ['UNIVERSAL', 'STANDARD', 'GENERIC', 'COMMON', 'COMPATIBLE']
+        if any(term in product_name for term in generic_terms):
+            print(f"🔧 Generic part allowed: {product_name}")
+            return True
+        
+        # If product name is short and simple, likely a part number - allow it
+        if len(product_name.split()) <= 3:
+            print(f"🔧 Simple part name allowed: {product_name}")
+            return True
     
     print(f"❌ Model mismatch: {target_model} not found in {product_name}")
     return False
