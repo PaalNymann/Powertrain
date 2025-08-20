@@ -260,31 +260,39 @@ def search_products_by_oem_optimized(oem_number):
     try:
         print(f"🚀 OPTIMIZED: Searching for OEM: {oem_number}")
         
-        # Single optimized query using raw SQL for maximum performance
+        # Single optimized query using EXACT OEM matching (no LIKE patterns)
         raw_query = text("""
             SELECT DISTINCT sp.id, sp.title, sp.handle, sp.sku, sp.price, 
-                   sp.inventory_quantity, sp.created_at, sp.updated_at
+                   sp.inventory_quantity, sp.created_at, sp.updated_at,
+                   pm.value as matched_oem
             FROM shopify_products sp
             INNER JOIN product_metafields pm ON sp.id = pm.product_id
-            WHERE (
-                (pm.key = 'Original_nummer' AND pm.value LIKE :oem_pattern)
-                OR (pm.key = 'number' AND pm.value LIKE :oem_pattern)
-            )
-            AND pm.value != 'N/A'
+            WHERE pm.key = 'Original_nummer'
             AND pm.value IS NOT NULL
+            AND pm.value != 'N/A'
+            AND pm.value != ''
+            AND (
+                pm.value = :oem_exact
+                OR pm.value LIKE :oem_comma_start
+                OR pm.value LIKE :oem_comma_middle
+                OR pm.value LIKE :oem_comma_end
+            )
             LIMIT 50
         """)
         
-        # Use LIKE pattern for better performance than CONTAINS
-        oem_pattern = f'%{oem_number}%'
-        
-        result = session.execute(raw_query, {'oem_pattern': oem_pattern})
+        # Use EXACT matching for comma-separated OEM lists
+        result = session.execute(raw_query, {
+            'oem_exact': oem_number,
+            'oem_comma_start': f'{oem_number},%',
+            'oem_comma_middle': f'%,{oem_number},%',
+            'oem_comma_end': f'%,{oem_number}'
+        })
         products = result.fetchall()
         
         if products:
             print(f"✅ OPTIMIZED: Found {len(products)} products for OEM: {oem_number}")
             
-            # Convert to dict format
+            # Convert to dict format with matched OEM
             product_dicts = []
             for row in products:
                 product_dict = {
@@ -295,7 +303,8 @@ def search_products_by_oem_optimized(oem_number):
                     'price': row[4],
                     'inventory_quantity': row[5],
                     'created_at': row[6].isoformat() if row[6] else None,
-                    'updated_at': row[7].isoformat() if row[7] else None
+                    'updated_at': row[7].isoformat() if row[7] else None,
+                    'matched_oem': row[8]  # The exact OEM that matched
                 }
                 product_dicts.append(product_dict)
             
@@ -417,34 +426,21 @@ def optimized_car_parts_search(license_plate):
         
         matched_products = list(unique_products.values())
         
-        # Step 4: VEHICLE/BRAND FILTERING - Remove cross-brand parts
-        print(f"🚗 Step 4: VEHICLE/BRAND FILTERING - Removing cross-brand parts...")
-        target_brand = vehicle_info['make'].upper()
+        # Step 4: STRICT OEM MATCHING ONLY - No model filtering, only OEM-to-OEM matching
+        print(f"🎯 Step 4: STRICT OEM MATCHING - Only products with matching OEM numbers...")
         
-        final_products = []
-        for product in matched_products:
-            product_title = product.get('title', '').upper()
-            
-            # Check for incompatible brands (don't show Toyota parts for Mercedes, etc.)
-            incompatible_brands = []
-            if 'MERCEDES' in target_brand:
-                incompatible_brands = ['TOYOTA', 'HONDA', 'NISSAN', 'MAZDA', 'SUBARU', 'MITSUBISHI']
-            elif 'BMW' in target_brand:
-                incompatible_brands = ['TOYOTA', 'HONDA', 'NISSAN', 'MAZDA', 'SUBARU', 'MITSUBISHI', 'MERCEDES']
-            elif 'AUDI' in target_brand:
-                incompatible_brands = ['TOYOTA', 'HONDA', 'NISSAN', 'MAZDA', 'SUBARU', 'MITSUBISHI', 'MERCEDES', 'BMW']
-            
-            # Check if product mentions incompatible brands
-            is_cross_brand = False
-            for incompatible in incompatible_brands:
-                if incompatible in product_title:
-                    print(f"❌ CROSS-BRAND: {product.get('id')} ({incompatible} in title) excluded for {target_brand}")
-                    is_cross_brand = True
-                    break
-            
-            if not is_cross_brand:
-                final_products.append(product)
-                print(f"✅ BRAND COMPATIBLE: {product.get('id')} added for {target_brand}")
+        # All matched products should already have matching OEMs from Step 3
+        # No additional filtering needed - if OEM matches, product is compatible
+        final_products = matched_products
+        
+        print(f"✅ OEM MATCHING COMPLETE: {len(final_products)} products with matching OEM numbers")
+        
+        # Debug: Show which OEMs were matched for each product
+        for product in final_products[:5]:  # Show first 5 for debugging
+            product_id = product.get('id', 'Unknown')
+            product_title = product.get('title', 'Unknown')
+            matched_oem = product.get('matched_oem', 'Unknown')
+            print(f"🔍 Product {product_id}: '{product_title}' matched OEM: {matched_oem}")
         
         step3_time = time.time() - step3_start
         print(f"⏱️  Steps 3-4 completed in {step3_time:.2f}s (found {len(final_products)} products)")

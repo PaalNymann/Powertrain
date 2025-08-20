@@ -399,7 +399,7 @@ def get_oems_for_vehicle_from_cache(vehicle_make, vehicle_model, vehicle_year):
         
         print(f"🔍 CACHE OEM LOOKUP: {vehicle_make} {vehicle_model} {vehicle_year}")
         
-        # Query pre-computed compatibility to get all OEM numbers for this vehicle
+        # First try exact match
         compatible_entries = session.query(VehicleProductCompatibility.matched_oem).filter(
             VehicleProductCompatibility.vehicle_make == vehicle_make,
             VehicleProductCompatibility.vehicle_model == vehicle_model,
@@ -407,6 +407,50 @@ def get_oems_for_vehicle_from_cache(vehicle_make, vehicle_model, vehicle_year):
             VehicleProductCompatibility.is_compatible == True,
             VehicleProductCompatibility.matched_oem.isnot(None)
         ).distinct().all()
+        
+        # If no exact match, try fuzzy matching
+        if not compatible_entries:
+            print(f"🔍 No exact match found, trying fuzzy matching...")
+            
+            # Check what vehicles DO exist in cache
+            existing_vehicles = session.query(
+                VehicleProductCompatibility.vehicle_make,
+                VehicleProductCompatibility.vehicle_model,
+                VehicleProductCompatibility.vehicle_year
+            ).distinct().limit(20).all()
+            
+            print(f"🔍 First 20 vehicles in cache:")
+            for i, (make, model, year) in enumerate(existing_vehicles, 1):
+                print(f"   {i}. {make} {model} {year}")
+            
+            # Try partial matches
+            fuzzy_queries = [
+                # Try without year
+                session.query(VehicleProductCompatibility.matched_oem).filter(
+                    VehicleProductCompatibility.vehicle_make == vehicle_make,
+                    VehicleProductCompatibility.vehicle_model == vehicle_model,
+                    VehicleProductCompatibility.is_compatible == True,
+                    VehicleProductCompatibility.matched_oem.isnot(None)
+                ),
+                # Try with model contains
+                session.query(VehicleProductCompatibility.matched_oem).filter(
+                    VehicleProductCompatibility.vehicle_make == vehicle_make,
+                    VehicleProductCompatibility.vehicle_model.contains(vehicle_model.split()[0]),
+                    VehicleProductCompatibility.vehicle_year == vehicle_year,
+                    VehicleProductCompatibility.is_compatible == True,
+                    VehicleProductCompatibility.matched_oem.isnot(None)
+                )
+            ]
+            
+            for i, query in enumerate(fuzzy_queries, 1):
+                try:
+                    fuzzy_entries = query.distinct().all()
+                    if fuzzy_entries:
+                        print(f"✅ Fuzzy match {i} found {len(fuzzy_entries)} entries")
+                        compatible_entries = fuzzy_entries
+                        break
+                except Exception as e:
+                    print(f"❌ Fuzzy query {i} failed: {e}")
         
         # Extract OEM numbers from query results
         oem_numbers = [entry.matched_oem for entry in compatible_entries if entry.matched_oem]
@@ -416,6 +460,8 @@ def get_oems_for_vehicle_from_cache(vehicle_make, vehicle_model, vehicle_year):
         print(f"✅ CACHE OEM LOOKUP completed with {len(oem_numbers)} OEM numbers")
         if oem_numbers:
             print(f"🔍 First 5 OEMs: {oem_numbers[:5]}")
+        else:
+            print(f"❌ No OEM numbers found for {vehicle_make} {vehicle_model} {vehicle_year}")
         
         return oem_numbers
         
