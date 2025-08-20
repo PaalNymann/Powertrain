@@ -337,116 +337,77 @@ def optimized_car_parts_search(license_plate):
         
         print(f"✅ Vehicle: {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
         
-        # Step 2: CORRECT - Get vehicle-specific OEMs directly from TecDoc
-        print(f"🚗 Step 2: CORRECT - Getting vehicle-specific OEMs from TecDoc...")
+        # Step 2: MATRIX LOOKUP - Use existing compatibility matrix
+        print(f"⚡ Step 2: MATRIX LOOKUP - Using pre-computed compatibility matrix...")
         step2_start = time.time()
         
-        # Use existing TecDoc integration to get OEMs for this specific vehicle
-        vehicle_oems = []
+        # Use the existing compatibility matrix for instant lookup
+        compatible_products = []
         try:
-            # Use the CORRECT existing function from rapidapi_tecdoc module
-            from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
-            vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
+            from compatibility_matrix import fast_compatibility_lookup
+            compatible_products = fast_compatibility_lookup(
                 vehicle_info['make'], 
                 vehicle_info['model'], 
                 vehicle_info['year']
             )
-            print(f"✅ TecDoc returned {len(vehicle_oems)} OEMs for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+            print(f"✅ Matrix returned {len(compatible_products)} compatible products for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
         except ImportError:
-            print("⚠️ TecDoc function not available, using simplified approach...")
-            # Simplified approach: get a reasonable set of OEMs from database
-            available_oems = get_available_oems_optimized()
-            # Limit to reasonable number for testing
-            vehicle_oems = available_oems[:20]  # Much smaller set for testing
-        except Exception as e:
-            print(f"❌ Error getting vehicle OEMs from TecDoc: {e}")
-            # Fallback: get smaller set from database
-            available_oems = get_available_oems_optimized()
-            vehicle_oems = available_oems[:20]  # Much smaller set
-        
-        step2_time = time.time() - step2_start
-        print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(vehicle_oems)} vehicle-specific OEMs)")
-        
-        if not vehicle_oems:
+            print("❌ Compatibility matrix not available!")
             return {
                 'vehicle_info': vehicle_info,
                 'available_oems': 0,
                 'compatible_oems': [],
                 'matching_products': [],
-                'message': 'No OEMs found for this specific vehicle'
+                'message': 'Compatibility matrix not available'
+            }
+        except Exception as e:
+            print(f"❌ Error using compatibility matrix: {e}")
+            return {
+                'vehicle_info': vehicle_info,
+                'available_oems': 0,
+                'compatible_oems': [],
+                'matching_products': [],
+                'message': f'Matrix lookup failed: {str(e)}'
             }
         
-        # Step 3: DIRECT - Search products by vehicle-specific OEMs
-        print(f"🛍️ Step 3: DIRECT - Searching products with vehicle-specific OEMs...")
+        step2_time = time.time() - step2_start
+        print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(compatible_products)} compatible products)")
+        
+        if not compatible_products:
+            return {
+                'vehicle_info': vehicle_info,
+                'available_oems': 0,
+                'compatible_oems': [],
+                'matching_products': [],
+                'message': 'No compatible products found in matrix for this vehicle'
+            }
+        
+        # Step 3: RETURN MATRIX RESULTS - Products are already compatible!
+        print(f"✅ Step 3: RETURN MATRIX RESULTS - Products are pre-validated as compatible!")
         step3_start = time.time()
         
-        # Use vehicle_oems directly (no need for compatibility check - TecDoc already gave us the right OEMs)
-        compatible_oems = vehicle_oems
+        # The compatibility matrix already contains fully compatible products
+        # No need for additional filtering - these are already validated!
+        final_products = compatible_products
         
-        all_matching_products = []
-        for oem_number in compatible_oems:
-            matching_products = search_products_by_oem_optimized(oem_number)
-            
-            if matching_products:
-                # Filter products by vehicle compatibility
-                for product in matching_products:
-                    product['matched_oem'] = oem_number
-                    
-                    # CRITICAL: Vehicle-specific filtering based on product title/description
-                    product_title = product.get('title', '').upper()
-                    target_model = vehicle_info['model'].upper()
-                    
-                    # Define incompatible vehicle types for this target vehicle
-                    incompatible_vehicles = []
-                    if 'GLK' in target_model:
-                        incompatible_vehicles = ['SPRINTER', 'ACTROS', 'ATEGO', 'VITO', 'VIANO', 'UNIMOG', 'AXOR']
-                    elif 'C-CLASS' in target_model or 'C220' in target_model:
-                        incompatible_vehicles = ['SPRINTER', 'GLK', 'GLC', 'GLE', 'GLS', 'VITO', 'VIANO']
-                    elif 'SPRINTER' in target_model:
-                        incompatible_vehicles = ['GLK', 'GLC', 'C-CLASS', 'E-CLASS', 'S-CLASS']
-                    
-                    # Check if product mentions incompatible vehicles
-                    is_incompatible = False
-                    for incompatible in incompatible_vehicles:
-                        if incompatible in product_title:
-                            print(f"❌ VEHICLE INCOMPATIBLE: {product.get('id')} ({incompatible} in title) excluded for {target_model}")
-                            is_incompatible = True
-                            break
-                    
-                    # Only add if compatible
-                    if not is_incompatible:
-                        all_matching_products.append(product)
-                        print(f"✅ VEHICLE COMPATIBLE: {product.get('id')} added for {target_model}")
-                    else:
-                        print(f"❌ VEHICLE FILTERED: {product.get('id')} excluded due to incompatible vehicle type")
-        
-        # Remove duplicates efficiently
-        unique_products = {}
-        for product in all_matching_products:
-            product_id = product.get('id')
-            if product_id and product_id not in unique_products:
-                unique_products[product_id] = product
-        
-        final_products = list(unique_products.values())
         step3_time = time.time() - step3_start
-        print(f"⏱️  Step 3 completed in {step3_time:.2f}s (found {len(final_products)} products)")
+        print(f"⏱️  Step 3 completed in {step3_time:.2f}s (returned {len(final_products)} products)")
         
         total_time = time.time() - start_time
-        print(f"🎯 DIRECT SEARCH COMPLETED in {total_time:.2f}s total")
+        print(f"🎯 MATRIX SEARCH COMPLETED in {total_time:.2f}s total")
         print(f"📊 Performance breakdown: Step2={step2_time:.2f}s, Step3={step3_time:.2f}s")
         
         return {
             'vehicle_info': vehicle_info,
-            'available_oems': len(vehicle_oems),
-            'compatible_oems': len(compatible_oems),
+            'available_oems': 0,  # Not applicable for matrix lookup
+            'compatible_oems': len(final_products),  # Products instead of OEMs
             'shopify_parts': final_products,
-            'message': f'Found {len(final_products)} compatible parts',
+            'message': f'Found {len(final_products)} compatible parts from matrix',
             'performance': {
                 'total_time': round(total_time, 2),
                 'step2_time': round(step2_time, 2),
                 'step3_time': round(step3_time, 2),
-                # 'step4_time': removed - now using direct 3-step approach,
-                'cache_hits': len([oem for oem in compatible_oems if get_cached_tecdoc_result(oem) is not None])
+                'matrix_lookup': True
             }
         }
         
