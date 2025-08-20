@@ -503,46 +503,52 @@ def optimized_car_parts_search(license_plate):
         
         matched_products = list(unique_products.values())
         
-        # Step 4: MODEL COMPATIBILITY CHECK - Filter out incompatible models
-        print(f"🎯 Step 4: MODEL COMPATIBILITY CHECK - Filtering for {vehicle_info['make']} {vehicle_info['model']}...")
+        # Step 4: TECDOC COMPATIBILITY CHECK - Verify products are truly compatible with this specific vehicle
+        print(f"🎯 Step 4: TECDOC COMPATIBILITY CHECK - Verifying products for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}...")
         
-        final_products = []
-        vehicle_model = vehicle_info['model'].upper()
-        
-        for product in matched_products:
-            product_title = product.get('title', '').upper()
-            product_id = product.get('id', '')
-            matched_oem = product.get('matched_oem', '')
+        try:
+            from tecdoc_compatibility import filter_products_by_compatibility
             
-            # Model-specific compatibility filtering
-            is_compatible = True
+            # Use TecDoc to verify each product's OEM is actually compatible with this vehicle
+            final_products = filter_products_by_compatibility(
+                matched_products,
+                vehicle_info['make'],
+                vehicle_info['model'],
+                int(vehicle_info['year'])
+            )
             
-            # For Mercedes GLK - exclude other Mercedes models
-            if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_info['make'].upper():
-                incompatible = ['VITO', 'SPRINTER', 'VIANO', 'CITAN', 'ACTROS', 'ATEGO', 'C-CLASS', 'E-CLASS', 'S-CLASS']
-                if any(model in product_title for model in incompatible):
-                    is_compatible = False
-                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible Mercedes model for GLK)")
+            print(f"✅ TECDOC COMPATIBILITY COMPLETE: {len(final_products)} truly compatible products (filtered from {len(matched_products)})")
             
-            # For VW Tiguan - exclude other VW models  
-            elif 'TIGUAN' in vehicle_model and 'VOLKSWAGEN' in vehicle_info['make'].upper():
-                incompatible = ['GOLF', 'PASSAT', 'POLO', 'TOURAN', 'SHARAN', 'CADDY', 'TRANSPORTER']
-                if any(model in product_title for model in incompatible):
-                    is_compatible = False
-                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible VW model for Tiguan)")
+        except ImportError as e:
+            print(f"❌ TecDoc compatibility module not available: {e}")
+            print(f"🔄 FALLBACK: Using basic model filtering...")
             
-            # For Volvo V70 - exclude other Volvo models
-            elif 'V70' in vehicle_model and 'VOLVO' in vehicle_info['make'].upper():
-                incompatible = ['XC90', 'XC60', 'S60', 'S80', 'V40', 'V50', 'V90', 'XC70']
-                if any(model in product_title for model in incompatible):
-                    is_compatible = False
-                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible Volvo model for V70)")
+            # Fallback to basic model filtering if TecDoc compatibility fails
+            final_products = []
+            vehicle_model = vehicle_info['model'].upper()
             
-            if is_compatible:
-                print(f"✅ COMPATIBLE: {product.get('title', '')} (OEM: {matched_oem})")
-                final_products.append(product)
-        
-        print(f"✅ MODEL FILTERING COMPLETE: {len(final_products)} compatible products (filtered from {len(matched_products)})")
+            for product in matched_products:
+                product_title = product.get('title', '').upper()
+                matched_oem = product.get('matched_oem', '')
+                
+                # Basic model exclusion as fallback
+                is_compatible = True
+                if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_info['make'].upper():
+                    incompatible = ['VITO', 'SPRINTER', 'VIANO', 'E-CLASS', 'E-KLASSE', 'C-CLASS', 'S-CLASS']
+                    if any(model in product_title for model in incompatible):
+                        is_compatible = False
+                        print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible model)")
+                
+                if is_compatible:
+                    final_products.append(product)
+            
+            print(f"✅ FALLBACK FILTERING COMPLETE: {len(final_products)} products")
+            
+        except Exception as e:
+            print(f"❌ Error in TecDoc compatibility check: {e}")
+            # If TecDoc fails, return all matched products to avoid breaking search
+            final_products = matched_products
+            print(f"🔄 ERROR FALLBACK: Returning all {len(final_products)} matched products")
         
         # Debug: Show which OEMs were matched for each product
         for product in final_products[:5]:  # Show first 5 for debugging
