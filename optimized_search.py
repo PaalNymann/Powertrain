@@ -344,9 +344,9 @@ def optimized_car_parts_search(license_plate):
         # Use existing TecDoc integration to get OEMs for this specific vehicle
         vehicle_oems = []
         try:
-            # Use the existing rapidapi_tecdoc module
-            from rapidapi_tecdoc import get_oems_for_vehicle
-            vehicle_oems = get_oems_for_vehicle(
+            # Use the CORRECT existing function from rapidapi_tecdoc module
+            from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
+            vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
                 vehicle_info['make'], 
                 vehicle_info['model'], 
                 vehicle_info['year']
