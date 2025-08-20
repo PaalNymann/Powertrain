@@ -280,6 +280,53 @@ def get_products_without_oem():
     print(f"⚠️ Cannot get products without OEM - metafield columns don't exist in Railway database")
     return []
 
+def get_all_unique_oem_numbers():
+    """
+    Get all unique OEM numbers from the database for hybrid matching
+    Returns a list of individual OEM numbers (not comma-separated strings)
+    """
+    try:
+        import psycopg2
+        import os
+        
+        # Use direct PostgreSQL connection for raw SQL
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            print("❌ DATABASE_URL not found")
+            return []
+        
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+        
+        # Get all Original_nummer values that are not empty
+        cursor.execute("SELECT DISTINCT value FROM product_metafields WHERE key = 'Original_nummer' AND value != ''")
+        oem_strings = [row[0] for row in cursor.fetchall()]
+        
+        # Split comma-separated OEM strings into individual OEMs
+        all_oems = set()
+        for oem_string in oem_strings:
+            if oem_string:
+                # Split by comma and clean up each OEM
+                oems = [oem.strip() for oem in oem_string.split(',') if oem.strip()]
+                all_oems.update(oems)
+        
+        # Convert to sorted list for consistency
+        unique_oems = sorted(list(all_oems))
+        
+        print(f"📊 DATABASE OEM EXTRACTION:")
+        print(f"   OEM strings found: {len(oem_strings)}")
+        print(f"   Unique OEM numbers: {len(unique_oems)}")
+        print(f"   First 10 OEMs: {unique_oems[:10]}")
+        
+        cursor.close()
+        conn.close()
+        
+        return unique_oems
+        
+    except Exception as e:
+        print(f"❌ Database OEM extraction failed: {e}")
+        return []
+
 def get_cache_stats():
     """Get cache statistics"""
     session = SessionLocal()
