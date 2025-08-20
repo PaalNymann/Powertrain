@@ -344,38 +344,44 @@ def optimized_car_parts_search(license_plate):
         # Get OEM numbers for this specific vehicle (use known OEMs for now)
         vehicle_oems = []
         
-        # TEMPORARY: Use known OEM numbers for YZ99554 (Mercedes GLK 220 CDI 2010)
+        # Get OEM numbers from CACHE for this specific vehicle (universal approach)
         vehicle_key = f"{vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}"
         
-        if 'YZ99554' in license_plate or ('MERCEDES' in vehicle_info['make'].upper() and 'GLK' in vehicle_info['model'].upper()):
-            # Known OEM numbers for Mercedes GLK 220 CDI 2010 from previous testing
-            vehicle_oems = [
-                'A2044102401', 'A2044106901', '2044102401', '2044106901', 
-                'A2044106701', 'A2044106701', 'A2044101801', 'A2044101801', 
-                'A2044102601', '2044102601', 'A2044106701', '2044106701', 
-                'A2214101701', '2214101701', '2044106901'
-            ]
-            print(f"✅ Using known OEM numbers for {vehicle_key}: {len(vehicle_oems)} OEMs")
-        else:
-            # For other vehicles, try TecDoc API (may fail)
-            try:
-                from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
-                vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
-                    vehicle_info['make'], 
-                    vehicle_info['model'], 
-                    vehicle_info['year']
-                )
-                print(f"✅ TecDoc returned {len(vehicle_oems)} OEM numbers for {vehicle_key}")
-            except Exception as e:
-                print(f"❌ TecDoc lookup failed for {vehicle_key}: {e}")
-                # Return empty result instead of error
+        try:
+            # Use CACHE OEM lookup for ALL vehicles - universal and fast!
+            from compatibility_matrix import get_oems_for_vehicle_from_cache
+            
+            print(f"🔍 Getting OEM numbers from CACHE for: {vehicle_key}")
+            vehicle_oems = get_oems_for_vehicle_from_cache(
+                vehicle_info['make'], 
+                vehicle_info['model'], 
+                vehicle_info['year']
+            )
+            
+            if vehicle_oems:
+                print(f"✅ CACHE returned {len(vehicle_oems)} OEM numbers for {vehicle_key}")
+                print(f"🔍 First 5 OEMs: {vehicle_oems[:5]}")
+            else:
+                print(f"⚠️ CACHE returned no OEM numbers for {vehicle_key}")
                 return {
                     'vehicle_info': vehicle_info,
                     'available_oems': 0,
                     'compatible_oems': [],
                     'matching_products': [],
-                    'message': f'No OEM data available for this vehicle: {vehicle_key}'
+                    'message': f'No OEM data found in cache for this vehicle: {vehicle_key}'
                 }
+                
+        except Exception as e:
+            print(f"❌ Cache OEM lookup failed for {vehicle_key}: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'vehicle_info': vehicle_info,
+                'available_oems': 0,
+                'compatible_oems': [],
+                'matching_products': [],
+                'message': f'Cache OEM lookup failed for: {vehicle_key}'
+            }
         
         step2_time = time.time() - step2_start
         print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(vehicle_oems)} OEM numbers)")
