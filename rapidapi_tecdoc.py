@@ -134,11 +134,21 @@ def find_manufacturer_id(brand: str, manufacturers: List[Dict]) -> Optional[int]
         
         # Check if any of the possible brand variations match
         for possible_brand in possible_brands:
-            if possible_brand in manufacturer_name or manufacturer_name in possible_brand:
+            # EXACT match first (prevent VW matching SKODA SVW)
+            if manufacturer_name == possible_brand:
                 manufacturer_id = manufacturer.get('manufacturerId')
                 if manufacturer_id:
-                    print(f"✅ Found manufacturer: {manufacturer_name} (ID: {manufacturer_id})")
+                    print(f"✅ Found manufacturer (EXACT): {manufacturer_name} (ID: {manufacturer_id})")
                     return manufacturer_id
+            
+            # Partial match only if exact fails and it's a clear substring
+            elif possible_brand in manufacturer_name and len(possible_brand) >= 3:
+                # Avoid false positives like VW matching "SKODA (SVW)"
+                if not ('SKODA' in manufacturer_name and possible_brand in ['VW', 'VOLKSWAGEN']):
+                    manufacturer_id = manufacturer.get('manufacturerId')
+                    if manufacturer_id:
+                        print(f"✅ Found manufacturer (PARTIAL): {manufacturer_name} (ID: {manufacturer_id})")
+                        return manufacturer_id
     
     print(f"❌ Manufacturer '{brand}' not found in TecDoc manufacturers")
     return None
@@ -618,6 +628,13 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         if not manufacturers_list:
             print("❌ No manufacturers found in response")
             return []
+        
+        print(f"✅ Found {len(manufacturers_list)} manufacturers")
+        
+        # Debug: Show first 10 manufacturers to help with debugging
+        print(f"🔍 First 10 manufacturers:")
+        for i, mfg in enumerate(manufacturers_list[:10]):
+            print(f"   {i+1}. {mfg.get('brand', 'Unknown')} (ID: {mfg.get('manufacturerId', 'N/A')})")
         
         manufacturer_id = find_manufacturer_id(brand, manufacturers_list)
         if not manufacturer_id:
