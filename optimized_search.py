@@ -531,32 +531,65 @@ def optimized_car_parts_search(license_plate):
         vehicle_make = vehicle_info['make'].upper()
         
         for product in matched_products:
-            product_title = product.get('title', '').upper()
-            matched_oem = product.get('matched_oem', '')
-            
-            # Enhanced model-specific compatibility filtering
             is_compatible = True
+            product_title = product.get('title', '').upper()
+            matched_oem = product.get('matched_oem', 'Unknown')
             
-            # For Mercedes GLK - exclude other Mercedes models (STRICT)
-            if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_make:
-                incompatible = ['VITO', 'SPRINTER', 'VIANO', 'E-CLASS', 'E-KLASSE', 'C-CLASS', 'C-KLASSE', 'S-CLASS', 'S-KLASSE', 'ML-CLASS', 'GLC', 'GLE', 'GLS']
-                if any(model in product_title for model in incompatible):
-                    is_compatible = False
-                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible Mercedes model for GLK)")
+            # FIRST: Brand filtering - only allow compatible brands for each vehicle
+            brand_compatible = False
             
-            # For VW Tiguan - exclude other VW models  
-            elif 'TIGUAN' in vehicle_model and 'VOLKSWAGEN' in vehicle_make:
-                incompatible = ['GOLF', 'PASSAT', 'POLO', 'TOURAN', 'SHARAN', 'CADDY', 'TRANSPORTER', 'AMAROK', 'ARTEON']
-                if any(model in product_title for model in incompatible):
-                    is_compatible = False
-                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible VW model for Tiguan)")
+            # For Mercedes vehicles - only allow Mercedes parts
+            if 'MERCEDES' in vehicle_make:
+                if any(brand in product_title for brand in ['MERCEDES', 'BENZ']):
+                    brand_compatible = True
+                else:
+                    print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (non-Mercedes part for Mercedes vehicle)")
             
-            # For Volvo V70 - exclude other Volvo models
-            elif 'V70' in vehicle_model and 'VOLVO' in vehicle_make:
-                incompatible = ['XC90', 'XC60', 'S60', 'S80', 'V40', 'V50', 'V90', 'XC70', 'XC40']
-                if any(model in product_title for model in incompatible):
-                    is_compatible = False
-                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible Volvo model for V70)")
+            # For VW Group vehicles - only allow VW Group parts
+            elif vehicle_make in ['VOLKSWAGEN', 'VW', 'AUDI', 'SEAT', 'SKODA']:
+                vw_brands = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
+                if any(brand in product_title for brand in vw_brands):
+                    brand_compatible = True
+                else:
+                    print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (non-VW Group part for {vehicle_make} vehicle)")
+            
+            # For Volvo vehicles - only allow Volvo parts
+            elif 'VOLVO' in vehicle_make:
+                if 'VOLVO' in product_title:
+                    brand_compatible = True
+                else:
+                    print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (non-Volvo part for Volvo vehicle)")
+            
+            # For other brands - allow universal parts or same brand
+            else:
+                brand_compatible = True  # Allow all for now
+            
+            # Skip to next product if brand is not compatible
+            if not brand_compatible:
+                is_compatible = False
+            
+            # SECOND: Model filtering (only if brand is compatible)
+            if is_compatible:
+                # For Mercedes GLK - exclude other Mercedes models (STRICT)
+                if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_make:
+                    incompatible = ['VITO', 'SPRINTER', 'VIANO', 'E-CLASS', 'E-KLASSE', 'C-CLASS', 'C-KLASSE', 'S-CLASS', 'S-KLASSE', 'ML-CLASS', 'GLC', 'GLE', 'GLS']
+                    if any(model in product_title for model in incompatible):
+                        is_compatible = False
+                        print(f"❌ MODEL EXCLUDED: {product.get('title', '')} (incompatible Mercedes model for GLK)")
+                
+                # For VW Tiguan - exclude other VW models  
+                elif 'TIGUAN' in vehicle_model and 'VOLKSWAGEN' in vehicle_make:
+                    incompatible = ['GOLF', 'PASSAT', 'POLO', 'TOURAN', 'SHARAN', 'CADDY', 'TRANSPORTER', 'AMAROK', 'ARTEON']
+                    if any(model in product_title for model in incompatible):
+                        is_compatible = False
+                        print(f"❌ MODEL EXCLUDED: {product.get('title', '')} (incompatible VW model for Tiguan)")
+                
+                # For Volvo V70 - exclude other Volvo models
+                elif 'V70' in vehicle_model and 'VOLVO' in vehicle_make:
+                    incompatible = ['XC90', 'XC60', 'S60', 'S80', 'V40', 'V50', 'V90', 'XC70', 'XC40']
+                    if any(model in product_title for model in incompatible):
+                        is_compatible = False
+                        print(f"❌ MODEL EXCLUDED: {product.get('title', '')} (incompatible Volvo model for V70)")
             
             if is_compatible:
                 print(f"✅ COMPATIBLE: {product.get('title', '')} (OEM: {matched_oem})")
