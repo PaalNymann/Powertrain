@@ -290,14 +290,21 @@ def find_model_id(model: str, year: int, models_data: Dict) -> Optional[int]:
         # Check if any variation matches the model name
         for variation in search_variations:
             if variation in model_name:
-                # Check if year is within range
-                if year_from <= year <= year_to:
-                    # Score based on how well the name matches
-                    score = len(variation) if model_name.startswith(variation) else len(variation) * 0.5
-                    if score > best_score:
-                        best_score = score
-                        best_match = model_data
-                        break
+                # Check if year is within range (ensure proper type conversion)
+                try:
+                    year_from_int = int(year_from) if year_from else 0
+                    year_to_int = int(year_to) if year_to else 9999
+                    year_int = int(year)
+                    if year_from_int <= year_int <= year_to_int:
+                        # Score based on how well the name matches
+                        score = len(variation) if model_name.startswith(variation) else len(variation) * 0.5
+                        if score > best_score:
+                            best_score = score
+                            best_match = model_data
+                            break
+                except (ValueError, TypeError):
+                    # If year conversion fails, skip this model
+                    continue
     
     if best_match:
         model_id = best_match.get('modelId')

@@ -503,14 +503,46 @@ def optimized_car_parts_search(license_plate):
         
         matched_products = list(unique_products.values())
         
-        # Step 4: STRICT OEM MATCHING ONLY - No model filtering, only OEM-to-OEM matching
-        print(f"🎯 Step 4: STRICT OEM MATCHING - Only products with matching OEM numbers...")
+        # Step 4: MODEL COMPATIBILITY CHECK - Filter out incompatible models
+        print(f"🎯 Step 4: MODEL COMPATIBILITY CHECK - Filtering for {vehicle_info['make']} {vehicle_info['model']}...")
         
-        # All matched products should already have matching OEMs from Step 3
-        # No additional filtering needed - if OEM matches, product is compatible
-        final_products = matched_products
+        final_products = []
+        vehicle_model = vehicle_info['model'].upper()
         
-        print(f"✅ OEM MATCHING COMPLETE: {len(final_products)} products with matching OEM numbers")
+        for product in matched_products:
+            product_title = product.get('title', '').upper()
+            product_id = product.get('id', '')
+            matched_oem = product.get('matched_oem', '')
+            
+            # Model-specific compatibility filtering
+            is_compatible = True
+            
+            # For Mercedes GLK - exclude other Mercedes models
+            if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_info['make'].upper():
+                incompatible = ['VITO', 'SPRINTER', 'VIANO', 'CITAN', 'ACTROS', 'ATEGO', 'C-CLASS', 'E-CLASS', 'S-CLASS']
+                if any(model in product_title for model in incompatible):
+                    is_compatible = False
+                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible Mercedes model for GLK)")
+            
+            # For VW Tiguan - exclude other VW models  
+            elif 'TIGUAN' in vehicle_model and 'VOLKSWAGEN' in vehicle_info['make'].upper():
+                incompatible = ['GOLF', 'PASSAT', 'POLO', 'TOURAN', 'SHARAN', 'CADDY', 'TRANSPORTER']
+                if any(model in product_title for model in incompatible):
+                    is_compatible = False
+                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible VW model for Tiguan)")
+            
+            # For Volvo V70 - exclude other Volvo models
+            elif 'V70' in vehicle_model and 'VOLVO' in vehicle_info['make'].upper():
+                incompatible = ['XC90', 'XC60', 'S60', 'S80', 'V40', 'V50', 'V90', 'XC70']
+                if any(model in product_title for model in incompatible):
+                    is_compatible = False
+                    print(f"❌ EXCLUDED: {product.get('title', '')} (incompatible Volvo model for V70)")
+            
+            if is_compatible:
+                print(f"✅ COMPATIBLE: {product.get('title', '')} (OEM: {matched_oem})")
+                final_products.append(product)
+        
+        print(f"✅ MODEL FILTERING COMPLETE: {len(final_products)} compatible products (filtered from {len(matched_products)})")
         
         # Debug: Show which OEMs were matched for each product
         for product in final_products[:5]:  # Show first 5 for debugging

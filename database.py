@@ -1,3 +1,5 @@
+Ja men den gir fortsatt for mange treff, det er kun deler som er riktig for den konkrete bilmodellen som skal vises
+
 import os
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, or_, func
 from sqlalchemy.ext.declarative import declarative_base
