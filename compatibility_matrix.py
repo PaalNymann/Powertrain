@@ -387,6 +387,44 @@ def cache_compatibility_result(make, model, year, compatible_products):
         if 'conn' in locals():
             conn.close()
 
+def get_oems_for_vehicle_from_cache(vehicle_make, vehicle_model, vehicle_year):
+    """
+    Get all OEM numbers for a specific vehicle from the compatibility matrix cache
+    Returns list of OEM numbers that are compatible with this vehicle
+    """
+    try:
+        engine = create_engine(RAILWAY_DATABASE_URL)
+        MatrixSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        session = MatrixSession()
+        
+        print(f"🔍 CACHE OEM LOOKUP: {vehicle_make} {vehicle_model} {vehicle_year}")
+        
+        # Query pre-computed compatibility to get all OEM numbers for this vehicle
+        compatible_entries = session.query(VehicleProductCompatibility.matched_oem).filter(
+            VehicleProductCompatibility.vehicle_make == vehicle_make,
+            VehicleProductCompatibility.vehicle_model == vehicle_model,
+            VehicleProductCompatibility.vehicle_year == vehicle_year,
+            VehicleProductCompatibility.is_compatible == True,
+            VehicleProductCompatibility.matched_oem.isnot(None)
+        ).distinct().all()
+        
+        # Extract OEM numbers from query results
+        oem_numbers = [entry.matched_oem for entry in compatible_entries if entry.matched_oem]
+        
+        session.close()
+        
+        print(f"✅ CACHE OEM LOOKUP completed with {len(oem_numbers)} OEM numbers")
+        if oem_numbers:
+            print(f"🔍 First 5 OEMs: {oem_numbers[:5]}")
+        
+        return oem_numbers
+        
+    except Exception as e:
+        print(f"❌ Error in cache OEM lookup: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
 def fast_compatibility_lookup(vehicle_make, vehicle_model, vehicle_year):
     """
     FAST: Lookup compatible products from pre-computed matrix
