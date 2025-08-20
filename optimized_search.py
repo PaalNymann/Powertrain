@@ -390,13 +390,40 @@ def optimized_car_parts_search(license_plate):
                 print(f"🔍 First 5 OEMs: {vehicle_oems[:5]}")
             else:
                 print(f"⚠️ CACHE returned no OEM numbers for {vehicle_key}")
-                return {
-                    'vehicle_info': vehicle_info,
-                    'available_oems': 0,
-                    'compatible_oems': [],
-                    'matching_products': [],
-                    'message': f'No OEM data found in cache for this vehicle: {vehicle_key}'
-                }
+                print(f"🔄 FALLBACK: Trying live TecDoc API for missing vehicle...")
+                
+                try:
+                    # Fallback to live TecDoc API when cache is missing data
+                    from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
+                    
+                    vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
+                        vehicle_info['make'], 
+                        vehicle_info['model'], 
+                        vehicle_info['year']
+                    )
+                    
+                    if vehicle_oems:
+                        print(f"✅ FALLBACK TecDoc returned {len(vehicle_oems)} OEM numbers for {vehicle_key}")
+                        print(f"🔍 First 5 OEMs: {vehicle_oems[:5]}")
+                    else:
+                        print(f"❌ FALLBACK TecDoc also returned no OEM numbers for {vehicle_key}")
+                        return {
+                            'vehicle_info': vehicle_info,
+                            'available_oems': 0,
+                            'compatible_oems': [],
+                            'matching_products': [],
+                            'message': f'No OEM data found in cache or TecDoc for this vehicle: {vehicle_key}'
+                        }
+                        
+                except Exception as e:
+                    print(f"❌ FALLBACK TecDoc failed for {vehicle_key}: {e}")
+                    return {
+                        'vehicle_info': vehicle_info,
+                        'available_oems': 0,
+                        'compatible_oems': [],
+                        'matching_products': [],
+                        'message': f'Both cache and TecDoc failed for this vehicle: {vehicle_key}'
+                    }
                 
         except Exception as e:
             print(f"❌ Cache OEM lookup failed for {vehicle_key}: {e}")
