@@ -260,11 +260,17 @@ def search_products_by_oem_optimized(oem_number):
     try:
         print(f"🚀 OPTIMIZED: Searching for OEM: {oem_number}")
         
-        # Normalize OEM number: remove spaces and convert to uppercase
-        normalized_oem = ''.join(oem_number.split()).upper()
-        print(f"🔧 Normalized OEM: '{oem_number}' → '{normalized_oem}'")
+        # Create OEM variations to handle spaces and case differences
+        oem_original = oem_number
+        oem_upper = oem_number.upper()
+        oem_lower = oem_number.lower()
+        oem_no_spaces = ''.join(oem_number.split())
+        oem_no_spaces_upper = ''.join(oem_number.split()).upper()
+        oem_no_spaces_lower = ''.join(oem_number.split()).lower()
         
-        # OEM matching with case-insensitive and space-insensitive comparison
+        print(f"🔧 Trying OEM variations: {oem_original}, {oem_no_spaces_upper}")
+        
+        # Simple, fast query with explicit OR conditions (PostgreSQL compatible)
         raw_query = text("""
             SELECT DISTINCT sp.id, sp.title, sp.handle, sp.sku, sp.price, 
                    sp.inventory_quantity, sp.created_at, sp.updated_at,
@@ -276,20 +282,28 @@ def search_products_by_oem_optimized(oem_number):
             AND pm.value != 'N/A'
             AND pm.value != ''
             AND (
-                UPPER(REPLACE(pm.value, ' ', '')) = :normalized_oem
-                OR UPPER(REPLACE(pm.value, ' ', '')) LIKE :oem_comma_start
-                OR UPPER(REPLACE(pm.value, ' ', '')) LIKE :oem_comma_middle
-                OR UPPER(REPLACE(pm.value, ' ', '')) LIKE :oem_comma_end
+                pm.value = :oem_original
+                OR pm.value = :oem_upper
+                OR pm.value = :oem_lower
+                OR pm.value = :oem_no_spaces
+                OR pm.value = :oem_no_spaces_upper
+                OR pm.value = :oem_no_spaces_lower
+                OR pm.value LIKE :comma_original
+                OR pm.value LIKE :comma_no_spaces
             )
             LIMIT 50
         """)
         
-        # Use normalized OEM for matching (case-insensitive, space-insensitive)
+        # Use simple exact matching with key variations
         result = session.execute(raw_query, {
-            'normalized_oem': normalized_oem,
-            'oem_comma_start': f'{normalized_oem},%',
-            'oem_comma_middle': f'%,{normalized_oem},%',
-            'oem_comma_end': f'%,{normalized_oem}'
+            'oem_original': oem_original,
+            'oem_upper': oem_upper,
+            'oem_lower': oem_lower,
+            'oem_no_spaces': oem_no_spaces,
+            'oem_no_spaces_upper': oem_no_spaces_upper,
+            'oem_no_spaces_lower': oem_no_spaces_lower,
+            'comma_original': f'%,{oem_original},%',
+            'comma_no_spaces': f'%,{oem_no_spaces_upper},%'
         })
         products = result.fetchall()
         
