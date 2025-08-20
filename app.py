@@ -238,7 +238,7 @@ def car_parts_search():
     print(f"🚗 Starting OPTIMIZED car parts search for license plate: {regnr}")
     
     try:
-        # Use the optimized search function
+        # Use the optimized search function with OEM matching
         from optimized_search import optimized_car_parts_search
         result = optimized_car_parts_search(regnr)
         
