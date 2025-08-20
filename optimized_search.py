@@ -253,86 +253,92 @@ def is_brand_compatible(target_brand, manufacturer_name, product_name, model):
 
 def search_products_by_oem_optimized(oem_number):
     """
-    OPTIMIZED: Search for products by OEM with single optimized query
-    Performance improvement: ~60% faster than original
+    DEBUG VERSION: Search for products by OEM with extensive logging to identify database issues
     """
     session = SessionLocal()
     try:
-        print(f"🚀 OPTIMIZED: Searching for OEM: {oem_number}")
+        print(f"🔍 DEBUG: Searching for OEM: {oem_number}")
         
-        # Create OEM variations to handle spaces and case differences
-        oem_original = oem_number
-        oem_upper = oem_number.upper()
-        oem_lower = oem_number.lower()
-        oem_no_spaces = ''.join(oem_number.split())
-        oem_no_spaces_upper = ''.join(oem_number.split()).upper()
-        oem_no_spaces_lower = ''.join(oem_number.split()).lower()
+        # First, check if ANY metafields exist at all
+        count_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'Original_nummer'")
+        count_result = session.execute(count_query)
+        total_oem_metafields = count_result.scalar()
+        print(f"📊 Total Original_nummer metafields in database: {total_oem_metafields}")
         
-        print(f"🔧 Trying OEM variations: {oem_original}, {oem_no_spaces_upper}")
-        
-        # Simple, fast query with explicit OR conditions (PostgreSQL compatible)
-        raw_query = text("""
-            SELECT DISTINCT sp.id, sp.title, sp.handle, sp.sku, sp.price, 
-                   sp.inventory_quantity, sp.created_at, sp.updated_at,
-                   pm.value as matched_oem
-            FROM shopify_products sp
-            INNER JOIN product_metafields pm ON sp.id = pm.product_id
-            WHERE pm.key = 'Original_nummer'
-            AND pm.value IS NOT NULL
-            AND pm.value != 'N/A'
-            AND pm.value != ''
-            AND (
-                pm.value = :oem_original
-                OR pm.value = :oem_upper
-                OR pm.value = :oem_lower
-                OR pm.value = :oem_no_spaces
-                OR pm.value = :oem_no_spaces_upper
-                OR pm.value = :oem_no_spaces_lower
-                OR pm.value LIKE :comma_original
-                OR pm.value LIKE :comma_no_spaces
-            )
-            LIMIT 50
-        """)
-        
-        # Use simple exact matching with key variations
-        result = session.execute(raw_query, {
-            'oem_original': oem_original,
-            'oem_upper': oem_upper,
-            'oem_lower': oem_lower,
-            'oem_no_spaces': oem_no_spaces,
-            'oem_no_spaces_upper': oem_no_spaces_upper,
-            'oem_no_spaces_lower': oem_no_spaces_lower,
-            'comma_original': f'%,{oem_original},%',
-            'comma_no_spaces': f'%,{oem_no_spaces_upper},%'
-        })
-        products = result.fetchall()
-        
-        if products:
-            print(f"✅ OPTIMIZED: Found {len(products)} products for OEM: {oem_number}")
-            
-            # Convert to dict format with matched OEM
-            product_dicts = []
-            for row in products:
-                product_dict = {
-                    'id': row[0],
-                    'title': row[1],
-                    'handle': row[2],
-                    'sku': row[3],
-                    'price': row[4],
-                    'inventory_quantity': row[5],
-                    'created_at': row[6].isoformat() if row[6] else None,
-                    'updated_at': row[7].isoformat() if row[7] else None,
-                    'matched_oem': row[8]  # The exact OEM that matched
-                }
-                product_dicts.append(product_dict)
-            
-            return product_dicts
-        else:
-            print(f"🔍 No products found for OEM: {oem_number}")
+        if total_oem_metafields == 0:
+            print("❌ CRITICAL: No Original_nummer metafields found in database!")
+            print("   This explains why no products are matched - metafields are missing!")
             return []
+        
+        # Check what metafield keys actually exist
+        keys_query = text("SELECT DISTINCT key FROM product_metafields LIMIT 10")
+        keys_result = session.execute(keys_query)
+        existing_keys = [row[0] for row in keys_result.fetchall()]
+        print(f"📋 Existing metafield keys: {existing_keys}")
+        
+        # Check a few sample Original_nummer values to see format
+        sample_query = text("SELECT value FROM product_metafields WHERE key = 'Original_nummer' AND value IS NOT NULL LIMIT 10")
+        sample_result = session.execute(sample_query)
+        sample_oems = [row[0] for row in sample_result.fetchall()]
+        print(f"🔍 Sample OEM values in database: {sample_oems}")
+        
+        # Now try the actual search with variations
+        oem_variations = [
+            oem_number,
+            oem_number.upper(),
+            oem_number.lower(),
+            oem_number.replace('A', '').replace('a', ''),  # Remove A prefix
+            ''.join(oem_number.split()),  # Remove spaces
+        ]
+        
+        print(f"🔧 Testing OEM variations: {oem_variations}")
+        
+        for variation in oem_variations:
+            exact_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'Original_nummer' AND value = :oem_value")
+            exact_result = session.execute(exact_query, {'oem_value': variation})
+            exact_count = exact_result.scalar()
             
+            if exact_count > 0:
+                print(f"✅ Found {exact_count} products for variation: {variation}")
+                
+                # Get the actual products
+                products_query = text("""
+                    SELECT sp.id, sp.title, sp.handle, sp.sku, sp.price, 
+                           sp.inventory_quantity, sp.created_at, sp.updated_at, pm.value 
+                    FROM shopify_products sp
+                    INNER JOIN product_metafields pm ON sp.id = pm.product_id
+                    WHERE pm.key = 'Original_nummer' AND pm.value = :oem_value
+                    LIMIT 5
+                """)
+                products_result = session.execute(products_query, {'oem_value': variation})
+                products = products_result.fetchall()
+                
+                # Convert to dict format
+                product_dicts = []
+                for row in products:
+                    product_dict = {
+                        'id': row[0],
+                        'title': row[1],
+                        'handle': row[2],
+                        'sku': row[3],
+                        'price': row[4],
+                        'inventory_quantity': row[5],
+                        'created_at': row[6].isoformat() if row[6] else None,
+                        'updated_at': row[7].isoformat() if row[7] else None,
+                        'matched_oem': row[8]
+                    }
+                    product_dicts.append(product_dict)
+                    print(f"   Product: {row[1]} (ID: {row[0]}, OEM: {row[8]})")
+                
+                return product_dicts
+            else:
+                print(f"❌ No products found for variation: {variation}")
+        
+        print(f"❌ No products found for any variation of OEM: {oem_number}")
+        return []
+        
     except Exception as e:
-        print(f"❌ Error in optimized product search: {e}")
+        print(f"❌ Error in debug OEM search: {e}")
         import traceback
         traceback.print_exc()
         return []
