@@ -667,24 +667,34 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         print(f"📋 Step 3: Getting articles for vehicle ID {vehicle_id}")
         
         # Search multiple relevant product groups to get comprehensive OEM coverage
+        # Start with Drivaksler only to avoid crashes, expand later
         product_groups = [
             (100260, "Drivaksler"),  # CV joints/drive shafts
-            (100270, "Mellomaksler"), # Intermediate shafts (if exists)
-            (100250, "Aksler"),      # General axles (if exists)
+            # TODO: Add more product groups when we confirm they exist in TecDoc
+            # (100270, "Mellomaksler"), # Intermediate shafts (if exists)
+            # (100250, "Aksler"),      # General axles (if exists)
         ]
         
         all_oem_numbers = []
         
         for product_group_id, group_name in product_groups:
             print(f"🔍 Searching {group_name} (ID: {product_group_id})...")
-            articles = get_articles_for_vehicle(vehicle_id, manufacturer_id, product_group_id=product_group_id)
-            
-            if articles:
-                group_oems = extract_oem_numbers_from_articles(articles)
-                print(f"✅ Found {len(group_oems)} OEMs in {group_name}")
-                all_oem_numbers.extend(group_oems)
-            else:
-                print(f"❌ No articles found in {group_name}")
+            try:
+                articles = get_articles_for_vehicle(vehicle_id, manufacturer_id, product_group_id=product_group_id)
+                
+                if articles and articles.get('articles'):
+                    group_oems = extract_oem_numbers_from_articles(articles)
+                    if group_oems:
+                        print(f"✅ Found {len(group_oems)} OEMs in {group_name}")
+                        all_oem_numbers.extend(group_oems)
+                    else:
+                        print(f"❌ No OEMs extracted from {group_name}")
+                else:
+                    print(f"❌ No articles found in {group_name}")
+                    
+            except Exception as e:
+                print(f"❌ Error searching {group_name}: {e}")
+                continue
         
         # Remove duplicates while preserving order
         oem_numbers = list(dict.fromkeys(all_oem_numbers))
