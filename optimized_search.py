@@ -260,7 +260,11 @@ def search_products_by_oem_optimized(oem_number):
     try:
         print(f"🚀 OPTIMIZED: Searching for OEM: {oem_number}")
         
-        # Single optimized query using EXACT OEM matching (no LIKE patterns)
+        # Normalize OEM number: remove spaces and convert to uppercase
+        normalized_oem = ''.join(oem_number.split()).upper()
+        print(f"🔧 Normalized OEM: '{oem_number}' → '{normalized_oem}'")
+        
+        # OEM matching with case-insensitive and space-insensitive comparison
         raw_query = text("""
             SELECT DISTINCT sp.id, sp.title, sp.handle, sp.sku, sp.price, 
                    sp.inventory_quantity, sp.created_at, sp.updated_at,
@@ -272,20 +276,20 @@ def search_products_by_oem_optimized(oem_number):
             AND pm.value != 'N/A'
             AND pm.value != ''
             AND (
-                pm.value = :oem_exact
-                OR pm.value LIKE :oem_comma_start
-                OR pm.value LIKE :oem_comma_middle
-                OR pm.value LIKE :oem_comma_end
+                UPPER(REPLACE(pm.value, ' ', '')) = :normalized_oem
+                OR UPPER(REPLACE(pm.value, ' ', '')) LIKE :oem_comma_start
+                OR UPPER(REPLACE(pm.value, ' ', '')) LIKE :oem_comma_middle
+                OR UPPER(REPLACE(pm.value, ' ', '')) LIKE :oem_comma_end
             )
             LIMIT 50
         """)
         
-        # Use EXACT matching for comma-separated OEM lists
+        # Use normalized OEM for matching (case-insensitive, space-insensitive)
         result = session.execute(raw_query, {
-            'oem_exact': oem_number,
-            'oem_comma_start': f'{oem_number},%',
-            'oem_comma_middle': f'%,{oem_number},%',
-            'oem_comma_end': f'%,{oem_number}'
+            'normalized_oem': normalized_oem,
+            'oem_comma_start': f'{normalized_oem},%',
+            'oem_comma_middle': f'%,{normalized_oem},%',
+            'oem_comma_end': f'%,{normalized_oem}'
         })
         products = result.fetchall()
         
