@@ -337,77 +337,112 @@ def optimized_car_parts_search(license_plate):
         
         print(f"✅ Vehicle: {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
         
-        # Step 2: MATRIX LOOKUP - Use existing compatibility matrix
-        print(f"⚡ Step 2: MATRIX LOOKUP - Using pre-computed compatibility matrix...")
+        # Step 2: OEM CACHE LOOKUP - Get OEM numbers for this vehicle from cache
+        print(f"🔍 Step 2: OEM CACHE LOOKUP - Getting OEM numbers for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}...")
         step2_start = time.time()
         
-        # Use the existing compatibility matrix for instant lookup
-        compatible_products = []
+        # Get OEM numbers from TecDoc cache (not products, just OEMs!)
+        vehicle_oems = []
         try:
-            from compatibility_matrix import fast_compatibility_lookup
-            compatible_products = fast_compatibility_lookup(
+            # Use existing TecDoc integration to get OEM numbers for this specific vehicle
+            from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
+            vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
                 vehicle_info['make'], 
                 vehicle_info['model'], 
                 vehicle_info['year']
             )
-            print(f"✅ Matrix returned {len(compatible_products)} compatible products for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
-        except ImportError:
-            print("❌ Compatibility matrix not available!")
-            return {
-                'vehicle_info': vehicle_info,
-                'available_oems': 0,
-                'compatible_oems': [],
-                'matching_products': [],
-                'message': 'Compatibility matrix not available'
-            }
+            print(f"✅ Cache returned {len(vehicle_oems)} OEM numbers for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
         except Exception as e:
-            print(f"❌ Error using compatibility matrix: {e}")
+            print(f"❌ Error getting OEM numbers from cache: {e}")
             return {
                 'vehicle_info': vehicle_info,
                 'available_oems': 0,
                 'compatible_oems': [],
                 'matching_products': [],
-                'message': f'Matrix lookup failed: {str(e)}'
+                'message': f'OEM cache lookup failed: {str(e)}'
             }
         
         step2_time = time.time() - step2_start
-        print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(compatible_products)} compatible products)")
+        print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(vehicle_oems)} OEM numbers)")
         
-        if not compatible_products:
+        if not vehicle_oems:
             return {
                 'vehicle_info': vehicle_info,
                 'available_oems': 0,
                 'compatible_oems': [],
                 'matching_products': [],
-                'message': 'No compatible products found in matrix for this vehicle'
+                'message': 'No OEM numbers found in cache for this vehicle'
             }
         
-        # Step 3: RETURN MATRIX RESULTS - Products are already compatible!
-        print(f"✅ Step 3: RETURN MATRIX RESULTS - Products are pre-validated as compatible!")
+        # Step 3: MATCH OEMs AGAINST SHOPIFY - Find products with matching Original_nummer
+        print(f"🛍️ Step 3: MATCH OEMs AGAINST SHOPIFY - Searching Original_nummer field...")
         step3_start = time.time()
         
-        # The compatibility matrix already contains fully compatible products
-        # No need for additional filtering - these are already validated!
-        final_products = compatible_products
+        all_matching_products = []
+        for oem_number in vehicle_oems:
+            matching_products = search_products_by_oem_optimized(oem_number)
+            
+            if matching_products:
+                for product in matching_products:
+                    product['matched_oem'] = oem_number
+                    all_matching_products.append(product)
+        
+        # Remove duplicates
+        unique_products = {}
+        for product in all_matching_products:
+            product_id = product.get('id')
+            if product_id and product_id not in unique_products:
+                unique_products[product_id] = product
+        
+        matched_products = list(unique_products.values())
+        
+        # Step 4: VEHICLE/BRAND FILTERING - Remove cross-brand parts
+        print(f"🚗 Step 4: VEHICLE/BRAND FILTERING - Removing cross-brand parts...")
+        target_brand = vehicle_info['make'].upper()
+        
+        final_products = []
+        for product in matched_products:
+            product_title = product.get('title', '').upper()
+            
+            # Check for incompatible brands (don't show Toyota parts for Mercedes, etc.)
+            incompatible_brands = []
+            if 'MERCEDES' in target_brand:
+                incompatible_brands = ['TOYOTA', 'HONDA', 'NISSAN', 'MAZDA', 'SUBARU', 'MITSUBISHI']
+            elif 'BMW' in target_brand:
+                incompatible_brands = ['TOYOTA', 'HONDA', 'NISSAN', 'MAZDA', 'SUBARU', 'MITSUBISHI', 'MERCEDES']
+            elif 'AUDI' in target_brand:
+                incompatible_brands = ['TOYOTA', 'HONDA', 'NISSAN', 'MAZDA', 'SUBARU', 'MITSUBISHI', 'MERCEDES', 'BMW']
+            
+            # Check if product mentions incompatible brands
+            is_cross_brand = False
+            for incompatible in incompatible_brands:
+                if incompatible in product_title:
+                    print(f"❌ CROSS-BRAND: {product.get('id')} ({incompatible} in title) excluded for {target_brand}")
+                    is_cross_brand = True
+                    break
+            
+            if not is_cross_brand:
+                final_products.append(product)
+                print(f"✅ BRAND COMPATIBLE: {product.get('id')} added for {target_brand}")
         
         step3_time = time.time() - step3_start
-        print(f"⏱️  Step 3 completed in {step3_time:.2f}s (returned {len(final_products)} products)")
+        print(f"⏱️  Steps 3-4 completed in {step3_time:.2f}s (found {len(final_products)} products)")
         
         total_time = time.time() - start_time
-        print(f"🎯 MATRIX SEARCH COMPLETED in {total_time:.2f}s total")
-        print(f"📊 Performance breakdown: Step2={step2_time:.2f}s, Step3={step3_time:.2f}s")
+        print(f"🎯 OEM CACHE SEARCH COMPLETED in {total_time:.2f}s total")
+        print(f"📊 Performance breakdown: Step2={step2_time:.2f}s, Steps3-4={step3_time:.2f}s")
         
         return {
             'vehicle_info': vehicle_info,
-            'available_oems': 0,  # Not applicable for matrix lookup
-            'compatible_oems': len(final_products),  # Products instead of OEMs
+            'available_oems': len(vehicle_oems),
+            'compatible_oems': len(final_products),
             'shopify_parts': final_products,
-            'message': f'Found {len(final_products)} compatible parts from matrix',
+            'message': f'Found {len(final_products)} compatible parts via OEM matching',
             'performance': {
                 'total_time': round(total_time, 2),
                 'step2_time': round(step2_time, 2),
                 'step3_time': round(step3_time, 2),
-                'matrix_lookup': True
+                'oem_cache_lookup': True
             }
         }
         
