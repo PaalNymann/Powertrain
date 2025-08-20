@@ -294,12 +294,27 @@ def search_products_by_oem_optimized(oem_number):
         print(f"🔧 Testing OEM variations: {oem_variations}")
         
         for variation in oem_variations:
-            exact_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'Original_nummer' AND value = :oem_value")
-            exact_result = session.execute(exact_query, {'oem_value': variation})
-            exact_count = exact_result.scalar()
+            # Search for OEM within comma-separated lists using LIKE pattern
+            comma_query = text("""
+                SELECT COUNT(*) FROM product_metafields 
+                WHERE key = 'Original_nummer' 
+                AND (
+                    value LIKE :oem_start OR 
+                    value LIKE :oem_middle OR 
+                    value LIKE :oem_end OR
+                    value = :oem_exact
+                )
+            """)
+            comma_result = session.execute(comma_query, {
+                'oem_start': f'{variation},%',      # OEM at start: "1233500410, ..."
+                'oem_middle': f'%, {variation},%',  # OEM in middle: "..., 1233500410, ..."
+                'oem_end': f'%, {variation}',       # OEM at end: "..., 1233500410"
+                'oem_exact': variation              # Exact match (single OEM)
+            })
+            comma_count = comma_result.scalar()
             
-            if exact_count > 0:
-                print(f"✅ Found {exact_count} products for variation: {variation}")
+            if comma_count > 0:
+                print(f"✅ Found {comma_count} products for variation: {variation}")
                 
                 # Get the actual products
                 products_query = text("""
@@ -307,10 +322,21 @@ def search_products_by_oem_optimized(oem_number):
                            sp.inventory_quantity, sp.created_at, sp.updated_at, pm.value 
                     FROM shopify_products sp
                     INNER JOIN product_metafields pm ON sp.id = pm.product_id
-                    WHERE pm.key = 'Original_nummer' AND pm.value = :oem_value
+                    WHERE pm.key = 'Original_nummer' 
+                    AND (
+                        pm.value LIKE :oem_start OR 
+                        pm.value LIKE :oem_middle OR 
+                        pm.value LIKE :oem_end OR
+                        pm.value = :oem_exact
+                    )
                     LIMIT 5
                 """)
-                products_result = session.execute(products_query, {'oem_value': variation})
+                products_result = session.execute(products_query, {
+                    'oem_start': f'{variation},%',
+                    'oem_middle': f'%, {variation},%',
+                    'oem_end': f'%, {variation}',
+                    'oem_exact': variation
+                })
                 products = products_result.fetchall()
                 
                 # Convert to dict format
@@ -328,7 +354,7 @@ def search_products_by_oem_optimized(oem_number):
                         'matched_oem': row[8]
                     }
                     product_dicts.append(product_dict)
-                    print(f"   Product: {row[1]} (ID: {row[0]}, OEM: {row[8]})")
+                    print(f"   Product: {row[1]} (ID: {row[0]}, OEM list: {row[8]})")
                 
                 return product_dicts
             else:
