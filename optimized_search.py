@@ -507,7 +507,9 @@ def optimized_car_parts_search(license_plate):
         print(f"🎯 Step 4: TECDOC COMPATIBILITY CHECK - Verifying products for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}...")
         
         try:
+            print(f"🔄 ATTEMPTING TECDOC COMPATIBILITY IMPORT...")
             from tecdoc_compatibility import filter_products_by_compatibility
+            print(f"✅ TECDOC COMPATIBILITY IMPORT SUCCESS!")
             
             # Use TecDoc to verify each product's OEM is actually compatible with this vehicle
             final_products = filter_products_by_compatibility(
@@ -520,7 +522,7 @@ def optimized_car_parts_search(license_plate):
             print(f"✅ TECDOC COMPATIBILITY COMPLETE: {len(final_products)} truly compatible products (filtered from {len(matched_products)})")
             
         except ImportError as e:
-            print(f"❌ TecDoc compatibility module not available: {e}")
+            print(f"❌ TECDOC COMPATIBILITY IMPORT FAILED: {e}")
             print(f"🔄 FALLBACK: Using basic model filtering...")
             
             # Fallback to basic model filtering if TecDoc compatibility fails
