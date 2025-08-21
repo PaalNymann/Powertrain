@@ -559,66 +559,12 @@ def optimized_car_parts_search(license_plate):
             product_title = product.get('title', '').upper()
             matched_oem = product.get('matched_oem', 'Unknown')
             
-            # FIRST: Universal brand filtering - only allow compatible brands for each vehicle
-            brand_compatible = False
+            # SIMPLIFIED: If OEM matching found the product, it's compatible
+            # Brand filtering should never override direct OEM matches
+            brand_compatible = True
+            print(f"✅ OEM MATCH: {product.get('title', '')} (found via direct OEM matching for {vehicle_make})")
             
-            # Define brand groups for comprehensive coverage
-            brand_groups = {
-                'VW_GROUP': ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA'],
-                'MERCEDES': ['MERCEDES', 'BENZ', 'MERCEDES-BENZ'],
-                'BMW_GROUP': ['BMW', 'MINI'],
-                'PSA_GROUP': ['PEUGEOT', 'CITROEN', 'CITROËN', 'DS'],
-                'STELLANTIS': ['FIAT', 'ALFA', 'ROMEO', 'JEEP', 'CHRYSLER', 'DODGE'],
-                'FORD_GROUP': ['FORD', 'LINCOLN'],
-                'GM_GROUP': ['OPEL', 'CHEVROLET', 'CADILLAC'],
-                'TOYOTA_GROUP': ['TOYOTA', 'LEXUS'],
-                'NISSAN_GROUP': ['NISSAN', 'INFINITI'],
-                'HONDA_GROUP': ['HONDA', 'ACURA'],
-                'HYUNDAI_GROUP': ['HYUNDAI', 'KIA'],
-                'VOLVO_GROUP': ['VOLVO'],
-                'MAZDA_GROUP': ['MAZDA'],
-                'SUBARU_GROUP': ['SUBARU'],
-                'MITSUBISHI_GROUP': ['MITSUBISHI'],
-                'SUZUKI_GROUP': ['SUZUKI'],
-                'RENAULT_GROUP': ['RENAULT', 'DACIA'],
-                'TESLA_GROUP': ['TESLA'],
-                'JAGUAR_GROUP': ['JAGUAR', 'LAND', 'ROVER'],
-                'PORSCHE_GROUP': ['PORSCHE']
-            }
-            
-            # Find which group the vehicle belongs to
-            vehicle_group = None
-            for group_name, brands in brand_groups.items():
-                if any(brand in vehicle_make for brand in brands):
-                    vehicle_group = group_name
-                    break
-            
-            # If vehicle brand not in predefined groups, create single-brand group
-            if not vehicle_group:
-                vehicle_group = f"{vehicle_make}_GROUP"
-                brand_groups[vehicle_group] = [vehicle_make]
-            
-            # Check if product belongs to same brand group
-            product_brands = brand_groups[vehicle_group]
-            if any(brand in product_title for brand in product_brands):
-                brand_compatible = True
-                print(f"✅ BRAND MATCH: {vehicle_make} vehicle matches product brand group")
-            
-            # Allow universal/generic parts for all vehicles
-            elif any(term in product_title for term in ['UNIVERSAL', 'COMPATIBLE', 'GENERIC', 'ALL MODELS', 'MULTI-BRAND']):
-                brand_compatible = True
-                print(f"✅ UNIVERSAL PART: {product.get('title', '')} (universal part)")
-            
-            # Strict filtering: reject all other brand combinations
-            else:
-                brand_compatible = False
-                print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (incompatible brand for {vehicle_make} vehicle)")
-            
-            # Skip to next product if brand is not compatible
-            if not brand_compatible:
-                is_compatible = False
-            
-            # SECOND: Model filtering (only if brand is compatible)
+            # Model filtering (only if brand is compatible)
             if is_compatible:
                 # For Mercedes GLK - exclude other Mercedes models (STRICT)
                 if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_make:
