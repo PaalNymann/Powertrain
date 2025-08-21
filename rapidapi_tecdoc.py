@@ -667,11 +667,11 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         print(f"📋 Step 3: Getting articles for vehicle ID {vehicle_id}")
         
         # Search multiple relevant product groups to get comprehensive OEM coverage
-        # Start with Drivaksler only to avoid crashes, expand later
+        # Include both Drivaksler AND Mellomaksler for complete coverage
         product_groups = [
-            (100260, "Drivaksler"),  # CV joints/drive shafts
-            # TODO: Add more product groups when we confirm they exist in TecDoc
-            # (100270, "Mellomaksler"), # Intermediate shafts (if exists)
+            (100260, "Drivaksler"),   # CV joints/drive shafts
+            (100270, "Mellomaksler"), # Intermediate shafts - CRITICAL for MA18002!
+            # TODO: Add more product groups if needed
             # (100250, "Aksler"),      # General axles (if exists)
         ]
         
