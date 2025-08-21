@@ -535,34 +535,60 @@ def optimized_car_parts_search(license_plate):
             product_title = product.get('title', '').upper()
             matched_oem = product.get('matched_oem', 'Unknown')
             
-            # FIRST: Brand filtering - only allow compatible brands for each vehicle
+            # FIRST: Universal brand filtering - only allow compatible brands for each vehicle
             brand_compatible = False
             
-            # For Mercedes vehicles - only allow Mercedes parts
-            if 'MERCEDES' in vehicle_make:
-                if any(brand in product_title for brand in ['MERCEDES', 'BENZ']):
-                    brand_compatible = True
-                else:
-                    print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (non-Mercedes part for Mercedes vehicle)")
+            # Define brand groups for comprehensive coverage
+            brand_groups = {
+                'VW_GROUP': ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA'],
+                'MERCEDES': ['MERCEDES', 'BENZ', 'MERCEDES-BENZ'],
+                'BMW_GROUP': ['BMW', 'MINI'],
+                'PSA_GROUP': ['PEUGEOT', 'CITROEN', 'CITROËN', 'DS'],
+                'STELLANTIS': ['FIAT', 'ALFA', 'ROMEO', 'JEEP', 'CHRYSLER', 'DODGE'],
+                'FORD_GROUP': ['FORD', 'LINCOLN'],
+                'GM_GROUP': ['OPEL', 'CHEVROLET', 'CADILLAC'],
+                'TOYOTA_GROUP': ['TOYOTA', 'LEXUS'],
+                'NISSAN_GROUP': ['NISSAN', 'INFINITI'],
+                'HONDA_GROUP': ['HONDA', 'ACURA'],
+                'HYUNDAI_GROUP': ['HYUNDAI', 'KIA'],
+                'VOLVO_GROUP': ['VOLVO'],
+                'MAZDA_GROUP': ['MAZDA'],
+                'SUBARU_GROUP': ['SUBARU'],
+                'MITSUBISHI_GROUP': ['MITSUBISHI'],
+                'SUZUKI_GROUP': ['SUZUKI'],
+                'RENAULT_GROUP': ['RENAULT', 'DACIA'],
+                'TESLA_GROUP': ['TESLA'],
+                'JAGUAR_GROUP': ['JAGUAR', 'LAND', 'ROVER'],
+                'PORSCHE_GROUP': ['PORSCHE']
+            }
             
-            # For VW Group vehicles - only allow VW Group parts
-            elif vehicle_make in ['VOLKSWAGEN', 'VW', 'AUDI', 'SEAT', 'SKODA']:
-                vw_brands = ['VW', 'VOLKSWAGEN', 'AUDI', 'SEAT', 'SKODA']
-                if any(brand in product_title for brand in vw_brands):
-                    brand_compatible = True
-                else:
-                    print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (non-VW Group part for {vehicle_make} vehicle)")
+            # Find which group the vehicle belongs to
+            vehicle_group = None
+            for group_name, brands in brand_groups.items():
+                if any(brand in vehicle_make for brand in brands):
+                    vehicle_group = group_name
+                    break
             
-            # For Volvo vehicles - only allow Volvo parts
-            elif 'VOLVO' in vehicle_make:
-                if 'VOLVO' in product_title:
-                    brand_compatible = True
-                else:
-                    print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (non-Volvo part for Volvo vehicle)")
+            # If vehicle brand not in predefined groups, create single-brand group
+            if not vehicle_group:
+                vehicle_group = f"{vehicle_make}_GROUP"
+                brand_groups[vehicle_group] = [vehicle_make]
             
-            # For other brands - allow universal parts or same brand
+            # Check if product belongs to same brand group
+            product_brands = brand_groups[vehicle_group]
+            if any(brand in product_title for brand in product_brands):
+                brand_compatible = True
+                print(f"✅ BRAND MATCH: {vehicle_make} vehicle matches product brand group")
+            
+            # Allow universal/generic parts for all vehicles
+            elif any(term in product_title for term in ['UNIVERSAL', 'COMPATIBLE', 'GENERIC', 'ALL MODELS', 'MULTI-BRAND']):
+                brand_compatible = True
+                print(f"✅ UNIVERSAL PART: {product.get('title', '')} (universal part)")
+            
+            # Strict filtering: reject all other brand combinations
             else:
-                brand_compatible = True  # Allow all for now
+                brand_compatible = False
+                print(f"❌ BRAND EXCLUDED: {product.get('title', '')} (incompatible brand for {vehicle_make} vehicle)")
             
             # Skip to next product if brand is not compatible
             if not brand_compatible:
