@@ -282,18 +282,34 @@ def search_products_by_oem_optimized(oem_number):
         sample_oems = [row[0] for row in sample_result.fetchall()]
         print(f"🔍 Sample OEM values in database: {sample_oems}")
         
-        # Now try the actual search with variations
+        # Now try the actual search with COMPREHENSIVE variations
         oem_variations = [
-            oem_number,
-            oem_number.upper(),
-            oem_number.lower(),
-            oem_number.replace('A', '').replace('a', ''),  # Remove A prefix
-            ''.join(oem_number.split()),  # Remove spaces
+            oem_number,                                    # Original: "1234 567 890"
+            oem_number.upper(),                           # Upper: "1234 567 890"
+            oem_number.lower(),                           # Lower: "1234 567 890"
+            ''.join(oem_number.split()),                  # No spaces: "1234567890"
+            ''.join(oem_number.split()).upper(),          # No spaces upper: "1234567890"
+            ''.join(oem_number.split()).lower(),          # No spaces lower: "1234567890"
+            oem_number.replace('-', ''),                  # No dashes: "1234 567 890"
+            oem_number.replace('-', '').replace(' ', ''), # No dashes/spaces: "1234567890"
+            oem_number.replace('A', '').replace('a', ''), # Remove A prefix: "234 567 890"
+            oem_number.replace(' ', '-'),                 # Spaces to dashes: "1234-567-890"
+            oem_number.replace('-', ' '),                 # Dashes to spaces: "1234 567 890"
         ]
         
-        print(f"🔧 Testing OEM variations: {oem_variations}")
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_variations = []
+        for var in oem_variations:
+            if var not in seen:
+                seen.add(var)
+                unique_variations.append(var)
         
-        for variation in oem_variations:
+        print(f"🔧 Testing {len(unique_variations)} OEM variations: {unique_variations}")
+        
+        all_found_products = []
+        
+        for variation in unique_variations:
             # Search for OEM within comma-separated lists using LIKE pattern
             comma_query = text("""
                 SELECT COUNT(*) FROM product_metafields 
@@ -329,7 +345,7 @@ def search_products_by_oem_optimized(oem_number):
                         pm.value LIKE :oem_end OR
                         pm.value = :oem_exact
                     )
-                    LIMIT 5
+                    LIMIT 10
                 """)
                 products_result = session.execute(products_query, {
                     'oem_start': f'{variation},%',
@@ -339,8 +355,7 @@ def search_products_by_oem_optimized(oem_number):
                 })
                 products = products_result.fetchall()
                 
-                # Convert to dict format
-                product_dicts = []
+                # Convert to dict format and add to collection
                 for row in products:
                     product_dict = {
                         'id': row[0],
@@ -353,15 +368,24 @@ def search_products_by_oem_optimized(oem_number):
                         'updated_at': row[7].isoformat() if row[7] else None,
                         'matched_oem': row[8]
                     }
-                    product_dicts.append(product_dict)
+                    all_found_products.append(product_dict)
                     print(f"   Product: {row[1]} (ID: {row[0]}, OEM list: {row[8]})")
-                
-                return product_dicts
-            else:
-                print(f"❌ No products found for variation: {variation}")
         
-        print(f"❌ No products found for any variation of OEM: {oem_number}")
-        return []
+        # Remove duplicate products by ID
+        unique_products = {}
+        for product in all_found_products:
+            product_id = product['id']
+            if product_id not in unique_products:
+                unique_products[product_id] = product
+        
+        final_products = list(unique_products.values())
+        
+        if final_products:
+            print(f"✅ TOTAL UNIQUE PRODUCTS FOUND: {len(final_products)}")
+            return final_products
+        else:
+            print(f"❌ No products found for any variation of OEM: {oem_number}")
+            return []
         
     except Exception as e:
         print(f"❌ Error in debug OEM search: {e}")
