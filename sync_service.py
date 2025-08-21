@@ -89,11 +89,13 @@ def get_original_nummer_from_metadata(metadata):
 
 def get_i_nettbutikk_from_metadata(metadata):
     """Extract i_nettbutikk from metadata array"""
-    # Test different possible slug names
+    # Test different possible slug names (case-insensitive)
     possible_slugs = ['i-nettbutikk', 'i_nettbutikk', 'nettbutikk', 'webshop', 'online']
     for field in metadata:
-        if field.get('slug') in possible_slugs:
-            return field.get('value', '')
+        slug = field.get('slug', '').lower()  # Convert to lowercase for comparison
+        if slug in possible_slugs:
+            value = field.get('value', '').lower().strip()  # Also normalize value
+            return value
     return ''
 
 def debug_metadata_fields(p):
@@ -501,6 +503,70 @@ CORS(app)
 def health_check():
     """Health check endpoint for Railway deployment"""
     return jsonify({"status": "healthy", "service": "sync-service"})
+
+@app.get("/test/ma18002")
+def test_ma18002():
+    """Diagnostic endpoint: fetch MA18002 from Rackbeat and evaluate filters"""
+    try:
+        # Query Rackbeat directly for MA18002
+        params = {
+            "search": "MA18002",
+            "fields": "number,name,sales_price,available_quantity,group,metadata",
+            "limit": 50,
+            "page": 1,
+        }
+        r = requests.get(RACKBEAT_API, headers=HEAD_RACK, params=params, timeout=30)
+        if r.status_code not in [200, 206]:
+            return jsonify({"error": f"Rackbeat API error", "status": r.status_code}), 502
+
+        js = r.json()
+        # Support both shapes: {products: [...]} or {data: [...]} just in case
+        items = js.get("products") or js.get("data") or []
+
+        product = None
+        for p in items:
+            if p.get("number") == "MA18002":
+                product = p
+                break
+
+        if not product:
+            return jsonify({
+                "found": False,
+                "candidates": [p.get("number") for p in items[:10]],
+                "count": len(items)
+            })
+
+        # Extract diagnostics
+        group_name = product.get("group", {}).get("name", "")
+        stock = product.get("available_quantity", 0)
+        price = product.get("sales_price", 0)
+        i_nb = get_i_nettbutikk_from_metadata(product.get("metadata", []))
+        should_sync = filter_keep(product)
+
+        meta_list = [
+            {"slug": m.get("slug"), "value": m.get("value")} for m in product.get("metadata", [])
+        ]
+
+        return jsonify({
+            "found": True,
+            "number": product.get("number"),
+            "name": product.get("name"),
+            "group": group_name,
+            "stock": stock,
+            "price": price,
+            "i_nettbutikk": i_nb,
+            "should_sync": should_sync,
+            "filter_checks": {
+                "group_ok": group_name in ["Drivaksel", "Mellomaksel"],
+                "stock_ok": stock >= 1,
+                "price_ok": price > 0,
+                "i_nettbutikk_ok": i_nb == "ja",
+            },
+            "metadata": meta_list,
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.post("/sync/full")
 def sync_full():
