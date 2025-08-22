@@ -41,7 +41,7 @@ def validate_environment():
     return True
 
 def extract_vehicle_info(vehicle_data):
-    """Extract vehicle info from SVV response"""
+    """Extract comprehensive vehicle info from SVV response"""
     try:
         # SVV API returns kjoretoydataListe with kjoretoydata objects
         kjoretoydata_liste = vehicle_data.get('kjoretoydataListe', [])
@@ -55,26 +55,79 @@ def extract_vehicle_info(vehicle_data):
         tekniske_data = teknisk_godkjenning.get('tekniskeData', {})
         generelt = tekniske_data.get('generelt', {})
         
-        # Extract make from merke array
+        # Basic vehicle info
         merke_liste = generelt.get('merke', [])
         make = merke_liste[0].get('merke', '').upper() if merke_liste else ''
         
-        # Extract model from handelsbetegnelse array
         handelsbetegnelse_liste = generelt.get('handelsbetegnelse', [])
         model = handelsbetegnelse_liste[0].upper() if handelsbetegnelse_liste else ''
         
-        # Extract year from forstegangsregistrering
         forstegangsregistrering = kjoretoydata.get('forstegangsregistrering', {})
         registrert_dato = forstegangsregistrering.get('registrertForstegangNorgeDato', '')
         year = registrert_dato.split('-')[0] if registrert_dato else ''
         
+        # Extended vehicle details
+        # Chassis/VIN number
+        understellsnummer = generelt.get('understellsnummer', '')
+        
+        # Engine details
+        motor_data = tekniske_data.get('motor', {})
+        if isinstance(motor_data, list) and motor_data:
+            motor_data = motor_data[0]  # Take first engine if multiple
+        
+        motor_volum = motor_data.get('slagvolum', '') if motor_data else ''
+        motor_effekt = motor_data.get('maksEffekt', '') if motor_data else ''
+        drivstoff_liste = motor_data.get('drivstoff', []) if motor_data else []
+        fuel_type = drivstoff_liste[0].get('drivstoffKode', {}).get('kodeBeskrivelse', '') if drivstoff_liste else ''
+        
+        # Vehicle dimensions and weight
+        dimensjoner = tekniske_data.get('dimensjoner', {})
+        lengde = dimensjoner.get('lengde', '') if dimensjoner else ''
+        bredde = dimensjoner.get('bredde', '') if dimensjoner else ''
+        hoyde = dimensjoner.get('hoyde', '') if dimensjoner else ''
+        
+        vekter = tekniske_data.get('vekter', {})
+        egenvekt = vekter.get('egenvekt', '') if vekter else ''
+        totalvekt = vekter.get('tekniskTillattTotalvekt', '') if vekter else ''
+        
+        # Transmission
+        girkasse_liste = tekniske_data.get('girkasse', [])
+        transmission = girkasse_liste[0].get('girkasseType', {}).get('kodeBeskrivelse', '') if girkasse_liste else ''
+        
+        # Registration details
+        kjennemerke = kjoretoydata.get('kjennemerke', '')
+        
+        # EU approval/type approval
+        eu_godkjenning = teknisk_godkjenning.get('euGodkjenning', {})
+        variant = eu_godkjenning.get('variant', '') if eu_godkjenning else ''
+        versjon = eu_godkjenning.get('versjon', '') if eu_godkjenning else ''
+        
         return {
+            # Basic info (existing)
             'make': make,
             'model': model,
-            'year': year
+            'year': year,
+            
+            # Extended vehicle details
+            'license_plate': kjennemerke,
+            'chassis_number': understellsnummer,
+            'engine_volume': f"{motor_volum} cm³" if motor_volum else '',
+            'engine_power': f"{motor_effekt} kW" if motor_effekt else '',
+            'fuel_type': fuel_type,
+            'transmission': transmission,
+            'length': f"{lengde} mm" if lengde else '',
+            'width': f"{bredde} mm" if bredde else '',
+            'height': f"{hoyde} mm" if hoyde else '',
+            'curb_weight': f"{egenvekt} kg" if egenvekt else '',
+            'total_weight': f"{totalvekt} kg" if totalvekt else '',
+            'variant': variant,
+            'version': versjon,
+            'registration_date': registrert_dato
         }
     except Exception as e:
         print(f"❌ Error extracting vehicle info: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
