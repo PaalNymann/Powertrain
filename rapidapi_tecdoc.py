@@ -158,31 +158,59 @@ def find_model_id(model: str, year: str, models: List[Dict]) -> Optional[int]:
     for i, match in enumerate(matching_models[:10]):  # Show first 10
         print(f"   {i+1}. {match['name']} ({match['year_from']}-{match['year_to']}) ID: {match['vehicle_id']}")
     
-    # IMPROVED MATCHING: Find best match with strict year filtering
+    # IMPROVED MATCHING: Find best match with generation-aware filtering
     best_matches = []
     
-    # First: Find models with exact year range match
-    for match in matching_models:
-        year_from = match['year_from']
-        year_to = match['year_to']
+    # SPECIAL HANDLING for multi-generation models like X-Trail
+    if 'X-TRAIL' in model_upper:
+        print(f"🔍 Special X-Trail generation matching for year {year_int}")
         
-        if year_from and year_to and year_from != 'N/A' and year_to != 'N/A':
-            try:
-                year_from_int = int(year_from)
-                year_to_int = int(year_to)
-                if year_from_int <= year_int <= year_to_int:
-                    # Calculate match quality (prefer narrower year ranges)
-                    year_range = year_to_int - year_from_int
-                    match_score = 1000 - year_range  # Higher score for narrower ranges
-                    
-                    # Bonus for exact model name match
-                    if match['name'] == model_upper:
-                        match_score += 500
-                    
-                    best_matches.append((match_score, match))
-                    print(f"✅ Year match: {match['name']} ({year_from}-{year_to}) Score: {match_score}")
-            except (ValueError, TypeError):
-                pass
+        # X-Trail generation mapping based on year
+        for match in matching_models:
+            model_name = match['name']
+            
+            # X-TRAIL I (T30): 2001-2007
+            if 'I' in model_name and 'T30' in model_name and 2001 <= year_int <= 2007:
+                match_score = 2000  # Highest priority for correct generation
+                best_matches.append((match_score, match))
+                print(f"✅ X-Trail I (T30) match for {year_int}: {model_name} Score: {match_score}")
+            
+            # X-TRAIL II (T31): 2007-2014
+            elif 'II' in model_name and 'T31' in model_name and 2007 <= year_int <= 2014:
+                match_score = 2000  # Highest priority for correct generation
+                best_matches.append((match_score, match))
+                print(f"✅ X-Trail II (T31) match for {year_int}: {model_name} Score: {match_score}")
+            
+            # X-TRAIL III (T32): 2014+
+            elif 'III' in model_name and 'T32' in model_name and year_int >= 2014:
+                match_score = 2000  # Highest priority for correct generation
+                best_matches.append((match_score, match))
+                print(f"✅ X-Trail III (T32) match for {year_int}: {model_name} Score: {match_score}")
+    
+    # FALLBACK: Standard year range matching for other models
+    if not best_matches:
+        print(f"🔍 Standard year range matching for {model_upper}")
+        for match in matching_models:
+            year_from = match['year_from']
+            year_to = match['year_to']
+            
+            if year_from and year_to and year_from != 'N/A' and year_to != 'N/A':
+                try:
+                    year_from_int = int(year_from)
+                    year_to_int = int(year_to)
+                    if year_from_int <= year_int <= year_to_int:
+                        # Calculate match quality (prefer narrower year ranges)
+                        year_range = year_to_int - year_from_int
+                        match_score = 1000 - year_range  # Higher score for narrower ranges
+                        
+                        # Bonus for exact model name match
+                        if match['name'] == model_upper:
+                            match_score += 500
+                        
+                        best_matches.append((match_score, match))
+                        print(f"✅ Year match: {match['name']} ({year_from}-{year_to}) Score: {match_score}")
+                except (ValueError, TypeError):
+                    pass
     
     # If we have year-matched models, use the best one
     if best_matches:
