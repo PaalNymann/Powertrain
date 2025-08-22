@@ -96,38 +96,11 @@ def find_manufacturer_id(brand: str, manufacturers: List[Dict]) -> Optional[int]
     if not manufacturers:
         return None
     
-    # Normalize brand name for comparison
+    # Normalize brand name for comparison - use only exact SVV brand name
     brand_upper = brand.upper().strip()
     
-    # Brand name mappings for common variations
-    brand_mappings = {
-        'VOLKSWAGEN': ['VW', 'VOLKSWAGEN'],
-        'VW': ['VW', 'VOLKSWAGEN'],
-        'MERCEDES-BENZ': ['MERCEDES-BENZ', 'MERCEDES', 'MB'],
-        'BMW': ['BMW'],
-        'AUDI': ['AUDI'],
-        'VOLVO': ['VOLVO'],
-        'FORD': ['FORD'],
-        'TOYOTA': ['TOYOTA'],
-        'NISSAN': ['NISSAN'],
-        'HONDA': ['HONDA'],
-        'HYUNDAI': ['HYUNDAI'],
-        'KIA': ['KIA'],
-        'MAZDA': ['MAZDA'],
-        'SUBARU': ['SUBARU'],
-        'MITSUBISHI': ['MITSUBISHI'],
-        'PEUGEOT': ['PEUGEOT'],
-        'CITROEN': ['CITROEN', 'CITROËN'],
-        'RENAULT': ['RENAULT'],
-        'OPEL': ['OPEL'],
-        'FIAT': ['FIAT'],
-        'ALFA ROMEO': ['ALFA ROMEO', 'ALFA'],
-        'SKODA': ['SKODA', 'ŠKODA'],
-        'SEAT': ['SEAT']
-    }
-    
-    # Get possible brand variations
-    possible_brands = brand_mappings.get(brand_upper, [brand_upper])
+    # Use only the exact brand name from SVV - NO hardcoded mappings or variations
+    possible_brands = [brand_upper]
     
     for manufacturer in manufacturers:
         manufacturer_name = manufacturer.get('brand', '').upper().strip()
@@ -275,19 +248,8 @@ def find_model_id(model: str, year: int, models_data: Dict) -> Optional[int]:
     
     model_upper = model.upper()
     
-    # Model name variations
-    model_variations = {
-        'V70': ['V70', 'VOLVO V70'],
-        'V60': ['V60', 'VOLVO V60'],
-        'V90': ['V90', 'VOLVO V90'],
-        'XC60': ['XC60', 'VOLVO XC60'],
-        'XC90': ['XC90', 'VOLVO XC90'],
-        'S60': ['S60', 'VOLVO S60'],
-        'S80': ['S80', 'VOLVO S80'],
-        'S90': ['S90', 'VOLVO S90']
-    }
-    
-    search_variations = model_variations.get(model_upper, [model_upper])
+    # Use only the exact model name from SVV - NO hardcoded variations or fallbacks
+    search_variations = [model_upper]
     
     best_match = None
     best_score = 0
@@ -704,27 +666,11 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         # Step 3: Get articles for this specific vehicle (MULTIPLE product groups for comprehensive coverage)
         print(f"📋 Step 3: Getting articles for vehicle ID {vehicle_id}")
         
-        # Search multiple relevant product groups to get comprehensive OEM coverage
-        # Expanded to include all relevant drivetrain and suspension components
+        # Use only the two product groups we know exist in our database - NO expansion
+        # This matches exactly what we sync from Rackbeat (Drivaksel/Mellomaksel only)
         product_groups = [
             (100260, "Drivaksler"),      # CV joints/drive shafts
-            (100270, "Mellomaksler"),    # Intermediate shafts - CRITICAL for MA18002!
-            (100250, "Aksler"),          # General axles
-            (100240, "Differensial"),    # Differential components
-            (100230, "Drivverk"),        # Drive components
-            (100220, "Hjullagre"),       # Wheel bearings
-            (100210, "Hjulnav"),         # Wheel hubs
-            (100200, "Støtdempere"),     # Shock absorbers
-            (100190, "Fjærer"),          # Springs
-            (100180, "Stabilisatorstag"), # Stabilizer links
-            (100170, "Lenkearm"),        # Control arms
-            (100160, "Kuleledd"),        # Ball joints
-            (100150, "Styrearm"),        # Steering arms
-            (100140, "Styrestang"),      # Tie rods
-            # Add more common product groups that might contain relevant OEMs
-            (100300, "Bremsedeler"),     # Brake components
-            (100310, "Bremseskiver"),    # Brake discs
-            (100320, "Bremseklosser"),   # Brake pads
+            (100270, "Mellomaksler"),    # Intermediate shafts
         ]
         
         all_oem_numbers = []
