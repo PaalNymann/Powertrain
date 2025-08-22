@@ -127,55 +127,87 @@ def find_manufacturer_id(brand: str, manufacturers: List[Dict]) -> Optional[int]
     return None
 
 def find_model_id(model: str, year: str, models: List[Dict]) -> Optional[int]:
-    """Find vehicle/model ID by model name and year"""
+    """Find vehicle/model ID by model name and year with improved matching"""
     if not models:
         return None
     
     # Normalize model name for comparison
     model_upper = model.upper().strip()
     year_str = str(year)
+    year_int = int(year_str)
     
     print(f"🔍 Searching for model '{model_upper}' year {year_str} in {len(models)} models")
     
-    # First pass: exact model name match with year range check
+    # Debug: Show all matching models for analysis
+    matching_models = []
     for model_data in models:
         model_name = model_data.get('modelName', '').upper().strip()
-        
         if model_upper in model_name or model_name in model_upper:
-            # Check year range if available
             year_from = model_data.get('yearFrom')
             year_to = model_data.get('yearTo')
-            
-            if year_from and year_to and year_from != 'N/A' and year_to != 'N/A':
-                try:
-                    year_int = int(year_str)
-                    year_from_int = int(year_from)
-                    year_to_int = int(year_to)
-                    if year_from_int <= year_int <= year_to_int:
-                        vehicle_id = model_data.get('vehicleId') or model_data.get('modelId')
-                        if vehicle_id:
-                            print(f"✅ Found exact match: {model_name} ({year_from}-{year_to}) ID: {vehicle_id}")
-                            return vehicle_id
-                except (ValueError, TypeError):
-                    pass
-            else:
-                # No year range specified, use this model
-                vehicle_id = model_data.get('vehicleId') or model_data.get('modelId')
-                if vehicle_id:
-                    print(f"✅ Found model match: {model_name} ID: {vehicle_id}")
-                    return vehicle_id
-    
-    # Second pass: partial model name match
-    for model_data in models:
-        model_name = model_data.get('modelName', '').upper().strip()
-        
-        # Check if model name contains our search term or vice versa
-        if (len(model_upper) >= 3 and model_upper in model_name) or \
-           (len(model_name) >= 3 and model_name in model_upper):
             vehicle_id = model_data.get('vehicleId') or model_data.get('modelId')
+            matching_models.append({
+                'name': model_name,
+                'year_from': year_from,
+                'year_to': year_to,
+                'vehicle_id': vehicle_id,
+                'data': model_data
+            })
+    
+    print(f"🔍 Found {len(matching_models)} potential matches:")
+    for i, match in enumerate(matching_models[:10]):  # Show first 10
+        print(f"   {i+1}. {match['name']} ({match['year_from']}-{match['year_to']}) ID: {match['vehicle_id']}")
+    
+    # IMPROVED MATCHING: Find best match with strict year filtering
+    best_matches = []
+    
+    # First: Find models with exact year range match
+    for match in matching_models:
+        year_from = match['year_from']
+        year_to = match['year_to']
+        
+        if year_from and year_to and year_from != 'N/A' and year_to != 'N/A':
+            try:
+                year_from_int = int(year_from)
+                year_to_int = int(year_to)
+                if year_from_int <= year_int <= year_to_int:
+                    # Calculate match quality (prefer narrower year ranges)
+                    year_range = year_to_int - year_from_int
+                    match_score = 1000 - year_range  # Higher score for narrower ranges
+                    
+                    # Bonus for exact model name match
+                    if match['name'] == model_upper:
+                        match_score += 500
+                    
+                    best_matches.append((match_score, match))
+                    print(f"✅ Year match: {match['name']} ({year_from}-{year_to}) Score: {match_score}")
+            except (ValueError, TypeError):
+                pass
+    
+    # If we have year-matched models, use the best one
+    if best_matches:
+        best_matches.sort(key=lambda x: x[0], reverse=True)  # Sort by score descending
+        best_match = best_matches[0][1]
+        vehicle_id = best_match['vehicle_id']
+        if vehicle_id:
+            print(f"✅ BEST MATCH: {best_match['name']} ({best_match['year_from']}-{best_match['year_to']}) ID: {vehicle_id}")
+            return vehicle_id
+    
+    # Fallback: Use first model with exact name match (no year check)
+    for match in matching_models:
+        if match['name'] == model_upper:
+            vehicle_id = match['vehicle_id']
             if vehicle_id:
-                print(f"✅ Found partial match: {model_name} ID: {vehicle_id}")
+                print(f"✅ Exact name match: {match['name']} ID: {vehicle_id}")
                 return vehicle_id
+    
+    # Last resort: Use first partial match
+    if matching_models:
+        first_match = matching_models[0]
+        vehicle_id = first_match['vehicle_id']
+        if vehicle_id:
+            print(f"⚠️ Using first match: {first_match['name']} ID: {vehicle_id}")
+            return vehicle_id
     
     print(f"❌ Model '{model}' ({year}) not found in TecDoc models")
     return None
