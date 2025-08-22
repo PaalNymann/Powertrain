@@ -457,32 +457,22 @@ def optimized_car_parts_search(license_plate):
             traceback.print_exc()
             vehicle_oems = []  # Ensure it's empty so fallback is triggered
         
-        # Always try TecDoc fallback if cache didn't return OEMs
+        # NO FALLBACK: If cache fails and TecDoc fails, return no results
         if not vehicle_oems:
-            print(f"🔄 FALLBACK: Trying live TecDoc API for missing vehicle...")
-            
-            try:
-                # Fallback to live TecDoc API when cache is missing data
-                from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
-                
-                vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
-                    vehicle_info['make'], 
-                    vehicle_info['model'], 
-                    vehicle_info['year']
-                )
-                
-                if vehicle_oems:
-                    print(f"✅ FALLBACK TecDoc returned {len(vehicle_oems)} OEM numbers for {vehicle_key}")
-                    print(f"🔍 First 5 OEMs: {vehicle_oems[:5]}")
-                        
-                else:
-                    print(f"❌ FALLBACK TecDoc also returned no OEM numbers for {vehicle_key}")
-                    
-            except Exception as e:
-                print(f"❌ TecDoc fallback failed for {vehicle_key}: {e}")
-                import traceback
-                traceback.print_exc()
-                vehicle_oems = []
+            print(f"❌ No OEMs found for {vehicle_key} - no fallback allowed")
+            return {
+                'shopify_parts': [],
+                'vehicle_info': vehicle_info,
+                'message': f'Vehicle {vehicle_key} not found in compatibility data',
+                'available_oems': 0,
+                'compatible_oems': 0,
+                'performance': {
+                    'oem_cache_lookup': True,
+                    'step2_time': 0,
+                    'step3_time': 0,
+                    'total_time': time.time() - start_time
+                }
+            }
         
         # Final check - if still no OEMs, return empty result
         if not vehicle_oems:
