@@ -474,25 +474,6 @@ def optimized_car_parts_search(license_plate):
                 if vehicle_oems:
                     print(f"✅ FALLBACK TecDoc returned {len(vehicle_oems)} OEM numbers for {vehicle_key}")
                     print(f"🔍 First 5 OEMs: {vehicle_oems[:5]}")
-                    
-                    # HYBRID APPROACH: TecDoc confirms vehicle exists, but use ALL database OEMs for matching
-                    print(f"🔄 HYBRID MODE: TecDoc confirmed vehicle exists, now using ALL database OEMs for comprehensive matching...")
-                    
-                    # Get ALL unique OEM numbers from the database for broader matching
-                    try:
-                        from database import get_all_unique_oem_numbers
-                        all_database_oems = get_all_unique_oem_numbers()
-                        
-                        if all_database_oems:
-                            print(f"✅ HYBRID: Using {len(all_database_oems)} database OEMs instead of {len(vehicle_oems)} TecDoc codes")
-                            vehicle_oems = all_database_oems[:100]  # Limit to first 100 for performance
-                            print(f"🔍 First 5 database OEMs: {vehicle_oems[:5]}")
-                        else:
-                            print(f"❌ HYBRID: No database OEMs found, falling back to TecDoc codes")
-                            
-                    except Exception as e:
-                        print(f"❌ HYBRID: Database OEM lookup failed: {e}")
-                        print(f"🔄 HYBRID: Using TecDoc codes as fallback")
                         
                 else:
                     print(f"❌ FALLBACK TecDoc also returned no OEM numbers for {vehicle_key}")
@@ -513,6 +494,12 @@ def optimized_car_parts_search(license_plate):
                 'message': f'No OEM data found in cache or TecDoc for this vehicle: {vehicle_key}'
             }
         
+        # Ensure unique, vehicle-specific OEMs only
+        if vehicle_oems:
+            # Deduplicate while preserving order
+            vehicle_oems = list(dict.fromkeys(vehicle_oems))
+            print(f"🔧 Using {len(vehicle_oems)} vehicle-specific OEMs after de-duplication")
+
         step2_time = time.time() - step2_start
         print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(vehicle_oems)} OEM numbers)")
         
