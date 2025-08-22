@@ -655,13 +655,112 @@ def get_compatible_oems_for_vehicle(brand: str, model: str, year: int, available
 def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_data=None) -> List[str]:
     """
     Main function to get OEM numbers from RapidAPI TecDoc
-    Uses SVV data (VIN, engine code, etc.) to find exact vehicle ID when available
+    NEW APPROACH: Use direct OEM search from database instead of problematic vehicle-id lookup
     """
     print(f"🔍 Starting RapidAPI TecDoc lookup for {brand} {model} {year}")
     
     if not all([brand, model, year]):
         print(f"❌ Missing required parameters: brand={brand}, model={model}, year={year}")
         return []
+    
+    # NEW STRATEGY: Use direct OEM search approach (from memory of working endpoints)
+    # This is much more reliable than vehicle-id based lookup which returns wrong OEMs
+    print(f"🔄 Using DIRECT OEM SEARCH strategy (bypassing problematic vehicle-id lookup)")
+    
+    try:
+        # Get all available OEMs from our database for drivaksler/mellomaksler
+        from optimized_search import get_available_oems_optimized
+        available_oems = get_available_oems_optimized()
+        
+        if not available_oems:
+            print("❌ No OEMs available from database")
+            return []
+        
+        print(f"📋 Found {len(available_oems)} OEMs in database to validate against TecDoc")
+        
+        # Test each OEM against TecDoc to find vehicle-compatible ones
+        compatible_oems = []
+        test_limit = 50  # Test first 50 OEMs for performance
+        
+        for i, oem in enumerate(available_oems[:test_limit]):
+            if i % 10 == 0:  # Progress indicator
+                print(f"🔍 Testing OEM {i+1}/{min(test_limit, len(available_oems))}: {oem}")
+            
+            # Use direct OEM search endpoint (from memory of working endpoints)
+            if test_oem_compatibility_with_vehicle(oem, brand, model, year):
+                compatible_oems.append(oem)
+                print(f"✅ Compatible OEM found: {oem}")
+                
+                # Stop after finding reasonable number of compatible OEMs
+                if len(compatible_oems) >= 20:
+                    print(f"✅ Found {len(compatible_oems)} compatible OEMs - sufficient for search")
+                    break
+        
+        print(f"✅ DIRECT OEM SEARCH completed: {len(compatible_oems)} compatible OEMs found")
+        return compatible_oems
+        
+    except Exception as e:
+        print(f"❌ Error in direct OEM search: {e}")
+        # Fallback to old vehicle-id approach if direct search fails
+        print(f"🔄 Falling back to vehicle-id approach...")
+        return get_oem_numbers_via_vehicle_lookup(brand, model, year, svv_data)
+
+def test_oem_compatibility_with_vehicle(oem: str, brand: str, model: str, year: int) -> bool:
+    """Test if an OEM is compatible with the specific vehicle using direct OEM search"""
+    try:
+        # Use working endpoint from memory: /articles-oem/search
+        url = f"{BASE_URL}/articles-oem/search/lang-id/{LANG_ID}/article-oem-search-no/{oem}"
+        
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 200:
+            articles = response.json()
+            if isinstance(articles, list) and articles:
+                # Get article details to check vehicle compatibility
+                for article in articles[:2]:  # Check first 2 articles
+                    article_id = article.get('articleId')
+                    if article_id:
+                        # Use working endpoint: /articles/details/{articleId}
+                        details_url = f"{BASE_URL}/articles/details/{article_id}/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}"
+                        
+                        details_response = requests.get(details_url, headers=HEADERS, timeout=10)
+                        if details_response.status_code == 200:
+                            details = details_response.json()
+                            
+                            # Check vehicle compatibility
+                            vehicles = details.get('compatibleCars', []) or details.get('vehicles', [])
+                            for vehicle in vehicles:
+                                vehicle_brand = vehicle.get('manufacturerName', '').upper()
+                                vehicle_model = vehicle.get('modelName', '').upper()
+                                
+                                # Check if this vehicle matches our search criteria
+                                if (brand.upper() in vehicle_brand and 
+                                    model.upper() in vehicle_model):
+                                    
+                                    # Check year compatibility if available
+                                    year_start = vehicle.get('constructionIntervalStart', '')
+                                    year_end = vehicle.get('constructionIntervalEnd', '')
+                                    
+                                    if year_start and year_end:
+                                        try:
+                                            if int(year_start) <= year <= int(year_end):
+                                                return True
+                                        except:
+                                            pass
+                                    else:
+                                        # No year info, assume compatible if brand/model matches
+                                        return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error testing OEM {oem}: {e}")
+        return False
+
+def get_oem_numbers_via_vehicle_lookup(brand: str, model: str, year: int, svv_data=None) -> List[str]:
+    """
+    FALLBACK: Original vehicle-id based lookup (kept for fallback only)
+    """
+    print(f"🔄 FALLBACK: Using vehicle-id lookup for {brand} {model} {year}")
     
     # Extract detailed vehicle info from SVV if available
     vin = ''
