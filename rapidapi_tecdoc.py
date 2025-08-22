@@ -380,9 +380,10 @@ def find_vehicle_id(year: int, vehicle_types_data: Dict) -> Optional[int]:
     return None
 
 def get_articles_for_vehicle(vehicle_id: int, manufacturer_id: int, product_group_id: int = PRODUCT_GROUP_ID_DRIVAKSLER) -> Dict:
-    """Get articles for a specific vehicle and product group"""
+    """Get articles for a specific vehicle and product group with pagination support"""
     print(f"📡 Getting articles for vehicle {vehicle_id}, product group {product_group_id}...")
     
+    # First request to get total count and first batch
     url = (f"{BASE_URL}/articles/list/"
            f"vehicle-id/{vehicle_id}/"
            f"product-group-id/{product_group_id}/"
@@ -393,8 +394,45 @@ def get_articles_for_vehicle(vehicle_id: int, manufacturer_id: int, product_grou
         response = requests.get(url, headers=HEADERS, timeout=30)
         if response.status_code == 200:
             data = response.json()
-            article_count = data.get('countArticles', 0)
-            print(f"✅ Found {article_count} articles")
+            total_count = data.get('countArticles', 0)
+            current_articles = data.get('articles', [])
+            
+            print(f"✅ Found {total_count} total articles, got {len(current_articles)} in first batch")
+            
+            # If we have more articles than what we got, we need pagination
+            if total_count > len(current_articles) and total_count > 0:
+                print(f"🔄 Need pagination: {total_count} total vs {len(current_articles)} received")
+                
+                # Try to get more articles with pagination (if API supports it)
+                # Common pagination parameters: page, offset, limit
+                all_articles = current_articles.copy()
+                
+                # Try different pagination approaches
+                page = 2
+                while len(all_articles) < total_count and page <= 10:  # Safety limit
+                    paginated_url = f"{url}/page/{page}"
+                    try:
+                        page_response = requests.get(paginated_url, headers=HEADERS, timeout=30)
+                        if page_response.status_code == 200:
+                            page_data = page_response.json()
+                            page_articles = page_data.get('articles', [])
+                            if page_articles:
+                                all_articles.extend(page_articles)
+                                print(f"📄 Page {page}: got {len(page_articles)} more articles (total: {len(all_articles)})")
+                                page += 1
+                            else:
+                                break
+                        else:
+                            print(f"❌ Page {page} failed: {page_response.status_code}")
+                            break
+                    except Exception as e:
+                        print(f"❌ Page {page} error: {e}")
+                        break
+                
+                # Update data with all articles
+                data['articles'] = all_articles
+                print(f"✅ Final result: {len(all_articles)} articles collected")
+            
             return data
         else:
             print(f"❌ Articles request failed: {response.status_code} - {response.text}")
@@ -667,12 +705,26 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         print(f"📋 Step 3: Getting articles for vehicle ID {vehicle_id}")
         
         # Search multiple relevant product groups to get comprehensive OEM coverage
-        # Include both Drivaksler AND Mellomaksler for complete coverage
+        # Expanded to include all relevant drivetrain and suspension components
         product_groups = [
-            (100260, "Drivaksler"),   # CV joints/drive shafts
-            (100270, "Mellomaksler"), # Intermediate shafts - CRITICAL for MA18002!
-            # TODO: Add more product groups if needed
-            # (100250, "Aksler"),      # General axles (if exists)
+            (100260, "Drivaksler"),      # CV joints/drive shafts
+            (100270, "Mellomaksler"),    # Intermediate shafts - CRITICAL for MA18002!
+            (100250, "Aksler"),          # General axles
+            (100240, "Differensial"),    # Differential components
+            (100230, "Drivverk"),        # Drive components
+            (100220, "Hjullagre"),       # Wheel bearings
+            (100210, "Hjulnav"),         # Wheel hubs
+            (100200, "Støtdempere"),     # Shock absorbers
+            (100190, "Fjærer"),          # Springs
+            (100180, "Stabilisatorstag"), # Stabilizer links
+            (100170, "Lenkearm"),        # Control arms
+            (100160, "Kuleledd"),        # Ball joints
+            (100150, "Styrearm"),        # Steering arms
+            (100140, "Styrestang"),      # Tie rods
+            # Add more common product groups that might contain relevant OEMs
+            (100300, "Bremsedeler"),     # Brake components
+            (100310, "Bremseskiver"),    # Brake discs
+            (100320, "Bremseklosser"),   # Brake pads
         ]
         
         all_oem_numbers = []

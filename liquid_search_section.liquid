@@ -195,7 +195,20 @@
         html += `
           <div class="vehicle-info">
             <h3>${data.vehicle_info.make} ${data.vehicle_info.model}</h3>
-            <p><strong>År:</strong> ${data.vehicle_info.year}</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+              <div><strong>År:</strong> ${data.vehicle_info.year}</div>
+              ${data.vehicle_info.chassis_number ? `<div><strong>Chassisnr:</strong> ${data.vehicle_info.chassis_number}</div>` : ''}
+              ${data.vehicle_info.engine_volume ? `<div><strong>Motor:</strong> ${data.vehicle_info.engine_volume}</div>` : ''}
+              ${data.vehicle_info.engine_power ? `<div><strong>Effekt:</strong> ${data.vehicle_info.engine_power}</div>` : ''}
+              ${data.vehicle_info.fuel_type ? `<div><strong>Drivstoff:</strong> ${data.vehicle_info.fuel_type}</div>` : ''}
+              ${data.vehicle_info.transmission ? `<div><strong>Girkasse:</strong> ${data.vehicle_info.transmission}</div>` : ''}
+              ${data.vehicle_info.curb_weight ? `<div><strong>Egenvekt:</strong> ${data.vehicle_info.curb_weight}</div>` : ''}
+              ${data.vehicle_info.total_weight ? `<div><strong>Totalvekt:</strong> ${data.vehicle_info.total_weight}</div>` : ''}
+              ${data.vehicle_info.length ? `<div><strong>Lengde:</strong> ${data.vehicle_info.length}</div>` : ''}
+              ${data.vehicle_info.width ? `<div><strong>Bredde:</strong> ${data.vehicle_info.width}</div>` : ''}
+              ${data.vehicle_info.height ? `<div><strong>Høyde:</strong> ${data.vehicle_info.height}</div>` : ''}
+              ${data.vehicle_info.registration_date ? `<div><strong>Reg.dato:</strong> ${data.vehicle_info.registration_date}</div>` : ''}
+            </div>
           </div>
         `;
       }
