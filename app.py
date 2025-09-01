@@ -67,8 +67,17 @@ def extract_vehicle_info(vehicle_data):
         year = registrert_dato.split('-')[0] if registrert_dato else ''
         
         # Extended vehicle details
-        # Chassis/VIN number
+        # Chassis/VIN number - check multiple possible locations
         understellsnummer = generelt.get('understellsnummer', '')
+        
+        # If not found in generelt, check kjoretoyId (this is where it actually is!)
+        if not understellsnummer:
+            kjoretoy_id = kjoretoydata.get('kjoretoyId', {})
+            understellsnummer = kjoretoy_id.get('understellsnummer', '')
+            if understellsnummer:
+                print(f"✅ Found chassis number in kjoretoyId: {understellsnummer}")
+        else:
+            print(f"✅ Found chassis number in generelt: {understellsnummer}")
         
         # Engine details
         motor_data = tekniske_data.get('motor', {})
