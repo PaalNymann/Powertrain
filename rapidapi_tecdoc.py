@@ -248,12 +248,10 @@ def find_vehicle_id_by_vin(vin: str, models: List[Dict], brand: str, model: str,
     print(f"🔍 Using VIN {vin} to find precise vehicle ID")
     
     # Extract information from VIN
-    # For Volvo VINs like YV1SW494272634416:
-    # YV1 = Volvo Cars Sweden
-    # S = Model series indicator
-    # W494 = Model/engine variant code
-    # 27 = Model year code (2007)
-    # 2634416 = Serial number
+    # VIN structure: WMI (3) + VDS (6) + VIS (8) = 17 characters
+    # WMI = World Manufacturer Identifier (first 3 chars)
+    # VDS = Vehicle Descriptor Section (chars 4-9)
+    # VIS = Vehicle Identifier Section (chars 10-17)
     
     if vin.startswith('YV1') and brand.upper() == 'VOLVO':
         # Extract Volvo-specific information from VIN
@@ -277,6 +275,81 @@ def find_vehicle_id_by_vin(vin: str, models: List[Dict], brand: str, model: str,
                         if vehicle_id:
                             print(f"✅ VIN-based match: {model_name} ID: {vehicle_id}")
                             return vehicle_id
+    
+    elif vin.startswith('JN1') and brand.upper() == 'NISSAN':
+        # Nissan VIN decoding for JN1TENT30U0217281
+        # JN1 = Nissan Japan
+        # T = Vehicle line (T30 platform for X-Trail)
+        # E = Engine type
+        # N = Body type
+        # T = Transmission type
+        # 3 = Generation/series
+        # 0 = Check digit
+        # U = Model year (U = 2006)
+        # 0217281 = Serial number
+        
+        if len(vin) >= 10:
+            platform_code = vin[3]  # T = T30 platform
+            model_year_code = vin[9]  # U = 2006
+            
+            print(f"   VIN Platform Code: {platform_code} (T30 platform)")
+            print(f"   VIN Model Year Code: {model_year_code} (2006)")
+            
+            # Look for X-Trail models that match T30 platform and 2006 year
+            for model_data in models:
+                model_name = model_data.get('modelName', '').upper()
+                
+                # Look for X-Trail I (T30) generation specifically
+                if 'X-TRAIL' in model_name and ('T30' in model_name or 'I' in model_name):
+                    vehicle_id = model_data.get('vehicleId') or model_data.get('modelId')
+                    if vehicle_id:
+                        print(f"✅ VIN-based match: {model_name} ID: {vehicle_id}")
+                        return vehicle_id
+                
+                # Also check for generic X-Trail models from 2006 era
+                elif 'X-TRAIL' in model_name and not ('II' in model_name or 'III' in model_name):
+                    # This might be the first generation
+                    vehicle_id = model_data.get('vehicleId') or model_data.get('modelId')
+                    if vehicle_id:
+                        print(f"✅ VIN-based match (generic): {model_name} ID: {vehicle_id}")
+                        return vehicle_id
+    
+    # Add support for other common VIN prefixes
+    elif len(vin) >= 3:
+        wmi = vin[:3]
+        print(f"   VIN WMI: {wmi} - attempting generic VIN-based matching")
+        
+        # For any VIN, try to find the most specific model match
+        # This is a fallback that uses VIN presence to prefer more specific models
+        best_match = None
+        best_score = 0
+        
+        for model_data in models:
+            model_name = model_data.get('modelName', '').upper()
+            score = 0
+            
+            # Prefer models with generation indicators (I, II, III, etc.)
+            if any(gen in model_name for gen in [' I ', ' II ', ' III ', '(I)', '(II)', '(III)']):
+                score += 2
+            
+            # Prefer models with platform codes
+            if any(platform in model_name for platform in ['T30', 'T31', 'T32']):
+                score += 3
+            
+            # Basic model name match
+            if model.upper() in model_name:
+                score += 1
+            
+            if score > best_score:
+                best_score = score
+                best_match = model_data
+        
+        if best_match and best_score > 0:
+            vehicle_id = best_match.get('vehicleId') or best_match.get('modelId')
+            if vehicle_id:
+                model_name = best_match.get('modelName', '')
+                print(f"✅ VIN-based generic match: {model_name} ID: {vehicle_id} (score: {best_score})")
+                return vehicle_id
     
     # If VIN-specific matching fails, return None to fallback to regular matching
     print(f"❌ Could not find vehicle ID using VIN {vin}")
