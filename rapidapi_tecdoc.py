@@ -469,14 +469,14 @@ def find_vehicle_id(year: int, vehicle_types_data: Dict) -> Optional[int]:
         year_from = best_match.get('yearFrom')
         year_to = best_match.get('yearTo')
         print(f"✅ Found vehicle ID: {vehicle_id} ({engine_name}, {year_from}-{year_to})")
-        return vehicle_id
-    
     print(f"❌ Could not find vehicle ID for year {year}")
     return None
 
-def get_articles_for_vehicle(vehicle_id: int, manufacturer_id: int, product_group_id: int = PRODUCT_GROUP_ID_DRIVAKSLER) -> Dict:
-    """Get articles for a specific vehicle and product group with pagination support"""
-    print(f"📡 Getting articles for vehicle {vehicle_id}, product group {product_group_id}...")
+def get_articles_for_vehicle(vehicle_id: int, product_group_id: int, manufacturer_id: int) -> List[Dict]:
+    """Get all articles for a specific vehicle and product group with pagination support"""
+    if not vehicle_id or not product_group_id or not manufacturer_id:
+        print(f"❌ Missing required parameters: vehicle_id={vehicle_id}, product_group_id={product_group_id}, manufacturer_id={manufacturer_id}")
+        return []
     
     # First request to get total count and first batch
     url = (f"{BASE_URL}/articles/list/"
@@ -518,23 +518,70 @@ def get_articles_for_vehicle(vehicle_id: int, manufacturer_id: int, product_grou
                             else:
                                 break
                         else:
-                            print(f"❌ Page {page} failed: {page_response.status_code}")
+                            print(f"❌ Pagination page {page} failed: {page_response.status_code}")
                             break
                     except Exception as e:
-                        print(f"❌ Page {page} error: {e}")
+                        print(f"❌ Error getting page {page}: {e}")
                         break
                 
-                # Update data with all articles
-                data['articles'] = all_articles
                 print(f"✅ Final result: {len(all_articles)} articles collected")
-            
-            return data
+                return all_articles
+            else:
+                return current_articles
         else:
-            print(f"❌ Articles request failed: {response.status_code} - {response.text}")
-            return {}
+            print(f"❌ Failed to get articles: {response.status_code}")
+            if response.status_code == 404:
+                print(f"   Vehicle ID {vehicle_id} not found for product group {product_group_id}")
+            return []
     except Exception as e:
-        print(f"❌ Exception getting articles: {e}")
-        return {}
+        print(f"❌ Error getting articles: {e}")
+        return []
+
+
+def get_articles_by_vin(vin: str, product_group_id: int, manufacturer_id: int) -> List[Dict]:
+    """Get articles directly using VIN number - more precise than vehicle-id lookup"""
+    if not vin or not product_group_id or not manufacturer_id:
+        print(f"❌ Missing required parameters: vin={vin}, product_group_id={product_group_id}, manufacturer_id={manufacturer_id}")
+        return []
+    
+    print(f"🔍 Getting articles directly by VIN: {vin}")
+    
+    # Try VIN-based article search endpoint
+    url = (f"{BASE_URL}/articles/list/"
+           f"vin/{vin}/"
+           f"product-group-id/{product_group_id}/"
+           f"manufacturer-id/{manufacturer_id}/"
+           f"lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/type-id/{TYPE_ID}")
+    
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            articles = data.get('articles', [])
+            total_count = data.get('countArticles', len(articles))
+            
+            print(f"✅ VIN-based search found {total_count} articles")
+            return articles
+        else:
+            print(f"❌ VIN-based search failed: {response.status_code}")
+            # Try alternative VIN endpoint format
+            alt_url = f"{BASE_URL}/articles/vin/{vin}/product-group/{product_group_id}"
+            try:
+                alt_response = requests.get(alt_url, headers=HEADERS, timeout=30)
+                if alt_response.status_code == 200:
+                    alt_data = alt_response.json()
+                    alt_articles = alt_data.get('articles', [])
+                    print(f"✅ Alternative VIN endpoint found {len(alt_articles)} articles")
+                    return alt_articles
+                else:
+                    print(f"❌ Alternative VIN endpoint also failed: {alt_response.status_code}")
+            except Exception as e:
+                print(f"❌ Error with alternative VIN endpoint: {e}")
+            
+            return []
+    except Exception as e:
+        print(f"❌ Error getting articles by VIN: {e}")
+        return []
 
 def extract_oem_numbers_from_articles(articles_data: Dict) -> List[str]:
     """Extract OEM numbers from articles response"""
@@ -797,7 +844,7 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         print(f"✅ Found vehicle ID: {vehicle_id} for {brand} {model} {year}")
         
         # Step 3: Get articles for this specific vehicle (MULTIPLE product groups for comprehensive coverage)
-        print(f"📋 Step 3: Getting articles for vehicle ID {vehicle_id}")
+        print(f"📋 Step 3: Getting articles for vehicle")
         
         # Use only the two product groups we know exist in our database - NO expansion
         # This matches exactly what we sync from Rackbeat (Drivaksel/Mellomaksel only)
@@ -811,15 +858,30 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         for product_group_id, group_name in product_groups:
             print(f"🔍 Searching {group_name} (ID: {product_group_id})...")
             try:
-                articles = get_articles_for_vehicle(vehicle_id, manufacturer_id, product_group_id=product_group_id)
+                # PRIORITY 1: Use VIN directly if available (most precise)
+                articles = []
+                if vin:
+                    print(f"   🎯 Using VIN-based search: {vin}")
+                    articles = get_articles_by_vin(vin, product_group_id, manufacturer_id)
                 
-                if articles and articles.get('articles'):
-                    group_oems = extract_oem_numbers_from_articles(articles)
-                    if group_oems:
-                        print(f"✅ Found {len(group_oems)} OEMs in {group_name}")
-                        all_oem_numbers.extend(group_oems)
+                # FALLBACK: Use vehicle ID if VIN search fails or VIN not available
+                if not articles and vehicle_id:
+                    print(f"   🔄 Fallback to vehicle ID search: {vehicle_id}")
+                    articles = get_articles_for_vehicle(vehicle_id, product_group_id, manufacturer_id)
+                
+                if articles:
+                    # Handle both old format (dict with 'articles') and new format (direct list)
+                    articles_list = articles.get('articles', []) if isinstance(articles, dict) else articles
+                    
+                    if articles_list:
+                        group_oems = extract_oem_numbers_from_articles({'articles': articles_list})
+                        if group_oems:
+                            print(f"✅ Found {len(group_oems)} OEMs in {group_name}")
+                            all_oem_numbers.extend(group_oems)
+                        else:
+                            print(f"❌ No OEMs extracted from {group_name}")
                     else:
-                        print(f"❌ No OEMs extracted from {group_name}")
+                        print(f"❌ No articles found in {group_name}")
                 else:
                     print(f"❌ No articles found in {group_name}")
                     
