@@ -468,7 +468,8 @@ def optimized_car_parts_search(license_plate):
                 vehicle_oems = get_oem_numbers_from_rapidapi_tecdoc(
                     vehicle_info['make'], 
                     vehicle_info['model'], 
-                    vehicle_info['year']
+                    vehicle_info['year'],
+                    svv_data=vehicle_data  # Pass SVV data for VIN-based lookup
                 )
                 
                 if vehicle_oems:
