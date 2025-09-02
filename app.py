@@ -1513,6 +1513,62 @@ def debug_tecdoc_raw(license_plate):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/api/debug/tecdoc_oems/<license_plate>', methods=['GET'])
+def debug_tecdoc_oems(license_plate):
+    """Test get_oem_numbers_from_rapidapi_tecdoc directly to see what OEMs it returns"""
+    from svv_client import hent_kjoretoydata
+    from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
+    import traceback
+    
+    result = {
+        'license_plate': license_plate,
+        'vehicle_info': {},
+        'tecdoc_oems': [],
+        'diagnosis': ''
+    }
+    
+    try:
+        # Get SVV data
+        svv_data = hent_kjoretoydata(license_plate)
+        if not svv_data:
+            result['diagnosis'] = 'No SVV data'
+            return jsonify(result)
+        
+        # Extract vehicle info
+        vehicle_info = extract_vehicle_info(svv_data)
+        result['vehicle_info'] = {
+            'make': vehicle_info.get('make'),
+            'model': vehicle_info.get('model'),
+            'year': vehicle_info.get('year')
+        }
+        
+        # Call TecDoc directly
+        print(f"🔍 Calling get_oem_numbers_from_rapidapi_tecdoc for {license_plate}")
+        tecdoc_oems = get_oem_numbers_from_rapidapi_tecdoc(
+            vehicle_info['make'],
+            vehicle_info['model'], 
+            vehicle_info['year'],
+            svv_data
+        )
+        
+        result['tecdoc_oems'] = {
+            'count': len(tecdoc_oems) if tecdoc_oems else 0,
+            'oems': tecdoc_oems[:20] if tecdoc_oems else []  # First 20 OEMs
+        }
+        
+        # Diagnosis
+        if tecdoc_oems and len(tecdoc_oems) > 0:
+            result['diagnosis'] = f'SUCCESS: TecDoc returns {len(tecdoc_oems)} OEMs - problem is in matching logic'
+        else:
+            result['diagnosis'] = 'TecDoc returns 0 OEMs - problem is in TecDoc API integration'
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        result['error'] = str(e)
+        result['traceback'] = traceback.format_exc()
+        return jsonify(result), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
