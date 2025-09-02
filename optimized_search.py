@@ -78,54 +78,41 @@ def get_article_details_direct(article_id: int) -> Dict:
 
 def get_all_oems_for_vehicle_direct(make: str, model: str, year: str) -> Set[str]:
     """
-    Get ALL OEM numbers for a vehicle using direct TecDoc search
-    Uses known OEMs as starting point and expands to find all related OEMs
+    Get ALL OEM numbers for a vehicle using LIVE TecDoc API search
+    NO HARDCODED OEMS - Uses live TecDoc vehicle lookup and OEM extraction
     """
-    print(f"🔍 DIRECT OEM SEARCH: Getting all OEMs for {make} {model} {year}")
+    print(f"🔍 LIVE TECDOC OEM SEARCH: Getting all OEMs for {make} {model} {year}")
     
-    all_oems = set()
-    
-    # Use known OEMs as starting point for specific vehicles
-    known_oems = []
-    if 'NISSAN' in make.upper() and 'X-TRAIL' in model.upper():
-        known_oems = ["370008H310", "370008H510", "370008H800"]
-    elif 'MERCEDES' in make.upper() and 'GLK' in model.upper():
-        known_oems = ["2054101500", "2054101600"]  # Example Mercedes OEMs
-    elif 'VOLKSWAGEN' in make.upper() and 'TIGUAN' in model.upper():
-        known_oems = ["5N0407271", "5N0407272"]  # Example VW OEMs
-    else:
-        print(f"⚠️ No known OEMs for {make} {model} - returning empty set")
-        return set()
-    
-    if known_oems:
-        print(f"🔍 Starting with {len(known_oems)} known OEMs: {known_oems}")
+    try:
+        # Use RapidAPI TecDoc to get OEM numbers for this vehicle
+        from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
         
-        # For each known OEM, get all articles and extract all their OEMs
-        for oem in known_oems:
-            print(f"📋 Processing known OEM: {oem}")
+        # Create vehicle info dict for TecDoc lookup
+        vehicle_info = {
+            'make': make,
+            'model': model, 
+            'year': year,
+            'chassis_number': None  # Will be populated if available
+        }
+        
+        print(f"🔍 Calling TecDoc API for vehicle: {make} {model} {year}")
+        
+        # Get OEM numbers from TecDoc API
+        oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(vehicle_info)
+        
+        if oem_numbers and len(oem_numbers) > 0:
+            print(f"✅ TecDoc returned {len(oem_numbers)} OEM numbers")
+            print(f"🔍 First 10 OEMs: {oem_numbers[:10]}")
+            return set(oem_numbers)
+        else:
+            print(f"❌ TecDoc returned no OEM numbers for {make} {model} {year}")
+            return set()
             
-            articles = get_articles_by_oem_direct(oem)
-            
-            if articles:
-                print(f"✅ Found {len(articles)} articles for OEM {oem}")
-                
-                # Get details for each article to extract all OEMs
-                for article in articles:
-                    article_id = article.get('articleId')
-                    if article_id:
-                        details = get_article_details_direct(article_id)
-                        
-                        if details:
-                            oem_numbers = details.get('articleOemNo', [])
-                            for oem_data in oem_numbers:
-                                oem_no = oem_data.get('oemDisplayNo', '')
-                                if oem_no:
-                                    all_oems.add(oem_no)
-            else:
-                print(f"❌ No articles found for OEM {oem}")
-    
-    print(f"✅ DIRECT OEM SEARCH: Found {len(all_oems)} total OEMs for {make} {model} {year}")
-    return all_oems
+    except Exception as e:
+        print(f"❌ Error in live TecDoc OEM search: {e}")
+        import traceback
+        traceback.print_exc()
+        return set()
 
 def get_available_oems_optimized():
     """
