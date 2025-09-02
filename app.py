@@ -1042,6 +1042,94 @@ def debug_oem_matching(license_plate):
         debug_info['traceback'] = traceback.format_exc()
         return jsonify(debug_info), 500
 
+@app.route('/api/debug/cache_oems/<license_plate>', methods=['GET'])
+def debug_cache_oems(license_plate):
+    """
+    Debug endpoint to show what OEMs the cache system returns
+    """
+    from svv_client import hent_kjoretoydata
+    from compatibility_matrix import get_oems_for_vehicle_from_cache
+    from optimized_search import search_products_by_oem_optimized
+    import traceback
+    
+    debug_info = {
+        'license_plate': license_plate,
+        'steps': {}
+    }
+    
+    try:
+        # Step 1: Get vehicle data
+        vehicle_data = hent_kjoretoydata(license_plate)
+        if not vehicle_data:
+            return jsonify({'error': 'No vehicle data'})
+        
+        vehicle_info = extract_vehicle_info(vehicle_data)
+        debug_info['vehicle_info'] = {
+            'make': vehicle_info.get('make'),
+            'model': vehicle_info.get('model'),
+            'year': vehicle_info.get('year')
+        }
+        
+        # Step 2: Get OEMs from cache
+        try:
+            cache_oems = get_oems_for_vehicle_from_cache(
+                vehicle_info['make'], 
+                vehicle_info['model'], 
+                vehicle_info['year']
+            )
+            
+            debug_info['cache_oems'] = {
+                'count': len(cache_oems) if cache_oems else 0,
+                'oems': cache_oems[:20] if cache_oems else []  # First 20 for inspection
+            }
+            
+        except Exception as e:
+            debug_info['cache_oems'] = {
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+            return jsonify(debug_info)
+        
+        # Step 3: Test each cache OEM against search function
+        if cache_oems:
+            search_results = []
+            for i, oem in enumerate(cache_oems[:5]):  # Test first 5
+                try:
+                    products = search_products_by_oem_optimized(oem)
+                    search_results.append({
+                        'oem': oem,
+                        'products_found': len(products) if products else 0,
+                        'sample_products': [p.get('title', 'Unknown')[:50] for p in (products[:2] if products else [])]
+                    })
+                except Exception as e:
+                    search_results.append({
+                        'oem': oem,
+                        'error': str(e)
+                    })
+            
+            debug_info['search_results'] = search_results
+        
+        # Summary
+        debug_info['summary'] = {
+            'cache_oems_found': len(cache_oems) if cache_oems else 0,
+            'search_matches': sum(1 for r in debug_info.get('search_results', []) if r.get('products_found', 0) > 0),
+            'diagnosis': 'Unknown'
+        }
+        
+        if debug_info['summary']['cache_oems_found'] == 0:
+            debug_info['summary']['diagnosis'] = 'Cache returns no OEMs'
+        elif debug_info['summary']['search_matches'] == 0:
+            debug_info['summary']['diagnosis'] = 'Cache OEMs do not match database products'
+        else:
+            debug_info['summary']['diagnosis'] = 'Cache OEMs match some database products'
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        debug_info['error'] = str(e)
+        debug_info['traceback'] = traceback.format_exc()
+        return jsonify(debug_info), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
