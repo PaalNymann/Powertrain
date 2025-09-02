@@ -169,17 +169,20 @@ def find_model_id(model: str, year: str, models: List[Dict]) -> Optional[int]:
         for match in matching_models:
             model_name = match['name']
             
-            # X-TRAIL I (T30): 2001-2007
-            if 'I' in model_name and 'T30' in model_name and 2001 <= year_int <= 2007:
-                match_score = 2000  # Highest priority for correct generation
-                best_matches.append((match_score, match))
-                print(f"✅ X-Trail I (T30) match for {year_int}: {model_name} Score: {match_score}")
-            
-            # X-TRAIL II (T31): 2007-2014
-            elif 'II' in model_name and 'T31' in model_name and 2007 <= year_int <= 2014:
+            # TEMPORARY FIX: Test T31 generation for 2006 to get correct Nissan OEMs
+            # X-TRAIL II (T31): 2006-2014 (extended range to include 2006)
+            if 'II' in model_name and 'T31' in model_name and 2006 <= year_int <= 2014:
                 match_score = 2000  # Highest priority for correct generation
                 best_matches.append((match_score, match))
                 print(f"✅ X-Trail II (T31) match for {year_int}: {model_name} Score: {match_score}")
+                print(f"🎯 TESTING: Using T31 for 2006 to get Nissan OEMs instead of Bosch OEMs")
+            
+            # X-TRAIL I (T30): 2001-2005 (reduced range to exclude 2006)
+            elif 'I' in model_name and 'T30' in model_name and 2001 <= year_int <= 2005:
+                match_score = 1000  # Lower priority - T30 returns Bosch OEMs
+                best_matches.append((match_score, match))
+                print(f"⚠️ X-Trail I (T30) match for {year_int}: {model_name} Score: {match_score}")
+                print(f"🔍 DEBUG: T30 Vehicle ID: {match['vehicle_id']} - Returns Bosch OEMs, not Nissan")
             
             # X-TRAIL III (T32): 2014+
             elif 'III' in model_name and 'T32' in model_name and year_int >= 2014:
