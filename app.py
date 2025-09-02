@@ -1737,6 +1737,106 @@ def test_search_oem(oem_number):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/api/debug/reverse_lookup_oem/<oem_number>', methods=['GET'])
+def reverse_lookup_oem(oem_number):
+    """Reverse lookup: Search for specific OEM in TecDoc to see what vehicles/products it returns"""
+    import requests
+    import traceback
+    
+    result = {
+        'oem': oem_number,
+        'tecdoc_search': {},
+        'vehicles_found': [],
+        'diagnosis': ''
+    }
+    
+    try:
+        # Use TecDoc OEM search endpoint
+        rapidapi_key = os.getenv("RAPIDAPI_KEY")
+        rapidapi_host = "tecdoc-api.p.rapidapi.com"
+        
+        headers = {
+            "X-RapidAPI-Key": rapidapi_key,
+            "X-RapidAPI-Host": rapidapi_host
+        }
+        
+        url = f"https://{rapidapi_host}/articles-oem/search"
+        params = {
+            "oem": oem_number,
+            "limit": 10
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        result['tecdoc_search']['status_code'] = response.status_code
+        result['tecdoc_search']['url'] = url
+        result['tecdoc_search']['params'] = params
+        
+        if response.status_code == 200:
+            data = response.json()
+            result['tecdoc_search']['response'] = data
+            
+            if 'articles' in data and data['articles']:
+                articles = data['articles']
+                result['tecdoc_search']['articles_count'] = len(articles)
+                
+                # Get vehicle info for first few articles
+                for i, article in enumerate(articles[:3]):
+                    article_id = article.get('articleId')
+                    if article_id:
+                        # Get vehicle compatibility
+                        vehicle_url = f"https://{rapidapi_host}/articles/details/{article_id}"
+                        vehicle_response = requests.get(vehicle_url, headers=headers, timeout=30)
+                        
+                        if vehicle_response.status_code == 200:
+                            vehicle_data = vehicle_response.json()
+                            
+                            if 'vehicles' in vehicle_data:
+                                for vehicle in vehicle_data['vehicles'][:5]:
+                                    brand = vehicle.get('brandName', 'N/A')
+                                    model = vehicle.get('modelName', 'N/A')
+                                    year_from = vehicle.get('yearFrom', 'N/A')
+                                    year_to = vehicle.get('yearTo', 'N/A')
+                                    
+                                    vehicle_info = {
+                                        'brand': brand,
+                                        'model': model,
+                                        'year_from': year_from,
+                                        'year_to': year_to,
+                                        'article_id': article_id,
+                                        'article_brand': article.get('brandName', 'N/A'),
+                                        'article_name': article.get('articleName', 'N/A')
+                                    }
+                                    
+                                    result['vehicles_found'].append(vehicle_info)
+                                    
+                                    # Check if this matches Nissan X-Trail 2006
+                                    if ('NISSAN' in brand.upper() and 
+                                        'X-TRAIL' in model.upper() and 
+                                        (year_from == 'N/A' or int(year_from) <= 2006) and
+                                        (year_to == 'N/A' or int(year_to) >= 2006)):
+                                        result['diagnosis'] = f'SUCCESS: Found Nissan X-Trail match for OEM {oem_number}'
+                
+                if not result['vehicles_found']:
+                    result['diagnosis'] = f'PARTIAL: Found {len(articles)} articles but no vehicle details'
+                elif not result['diagnosis']:
+                    result['diagnosis'] = f'FOUND: {len(result["vehicles_found"])} vehicles but no Nissan X-Trail 2006 match'
+                    
+            else:
+                result['diagnosis'] = f'NO ARTICLES: OEM {oem_number} not found in TecDoc'
+                
+        elif response.status_code == 404:
+            result['diagnosis'] = f'ENDPOINT ERROR: TecDoc OEM search endpoint not available'
+        else:
+            result['diagnosis'] = f'API ERROR: TecDoc returned {response.status_code}'
+            result['tecdoc_search']['error'] = response.text[:200]
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        result['error'] = str(e)
+        result['traceback'] = traceback.format_exc()
+        return jsonify(result), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
