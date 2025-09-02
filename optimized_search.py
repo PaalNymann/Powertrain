@@ -87,18 +87,10 @@ def get_all_oems_for_vehicle_direct(make: str, model: str, year: str) -> Set[str
         # Use RapidAPI TecDoc to get OEM numbers for this vehicle
         from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
         
-        # Create vehicle info dict for TecDoc lookup
-        vehicle_info = {
-            'make': make,
-            'model': model, 
-            'year': year,
-            'chassis_number': None  # Will be populated if available
-        }
-        
         print(f"🔍 Calling TecDoc API for vehicle: {make} {model} {year}")
         
-        # Get OEM numbers from TecDoc API
-        oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(vehicle_info)
+        # Get OEM numbers from TecDoc API with correct parameters
+        oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(make, model, int(year))
         
         if oem_numbers and len(oem_numbers) > 0:
             print(f"✅ TecDoc returned {len(oem_numbers)} OEM numbers")
