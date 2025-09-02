@@ -1706,6 +1706,37 @@ def debug_tecdoc_steps(license_plate):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/api/test/search_oem/<oem_number>', methods=['GET'])
+def test_search_oem(oem_number):
+    """Test search_products_by_oem_optimized with specific OEM"""
+    from optimized_search import search_products_by_oem_optimized
+    import traceback
+    
+    result = {
+        'oem': oem_number,
+        'products_found': 0,
+        'sample_products': [],
+        'diagnosis': ''
+    }
+    
+    try:
+        products = search_products_by_oem_optimized(oem_number)
+        
+        if products:
+            result['products_found'] = len(products)
+            result['sample_products'] = products[:3]  # First 3 products
+            result['diagnosis'] = f'SUCCESS: Found {len(products)} products for OEM {oem_number}'
+        else:
+            result['products_found'] = 0
+            result['diagnosis'] = f'NO MATCH: OEM {oem_number} not found in database'
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        result['error'] = str(e)
+        result['traceback'] = traceback.format_exc()
+        return jsonify(result), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
