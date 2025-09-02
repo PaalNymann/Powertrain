@@ -1751,13 +1751,13 @@ def reverse_lookup_oem(oem_number):
     }
     
     try:
-        # Use TecDoc API with SAME host as main integration
-        rapidapi_key = os.getenv("RAPIDAPI_KEY")
+        # Use TecDoc API with SAME host and key as main integration
+        rapidapi_key = "48a6ede874mshe38f052cb6a6109p12916fjsn0d0c0912c5ed"  # Same as main integration
         rapidapi_host = "tecdoc-catalog.p.rapidapi.com"  # Same as main integration
         
         headers = {
-            "X-RapidAPI-Key": rapidapi_key,
-            "X-RapidAPI-Host": rapidapi_host
+            "x-rapidapi-key": rapidapi_key,  # Same header format as main integration
+            "x-rapidapi-host": rapidapi_host
         }
         
         # Try multiple TecDoc endpoints for OEM search
