@@ -1569,6 +1569,143 @@ def debug_tecdoc_oems(license_plate):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/api/debug/tecdoc_steps/<license_plate>', methods=['GET'])
+def debug_tecdoc_steps(license_plate):
+    """Debug each step of TecDoc OEM extraction to find where it fails"""
+    from svv_client import hent_kjoretoydata
+    from rapidapi_tecdoc import (
+        extract_vin_from_svv, get_manufacturers, find_manufacturer_id,
+        get_models_for_manufacturer, find_model_id, get_articles_for_vehicle,
+        extract_oem_numbers_from_articles
+    )
+    import traceback
+    
+    result = {
+        'license_plate': license_plate,
+        'steps': {},
+        'diagnosis': ''
+    }
+    
+    try:
+        # Step 0: Get SVV data and extract info
+        svv_data = hent_kjoretoydata(license_plate)
+        if not svv_data:
+            result['diagnosis'] = 'No SVV data'
+            return jsonify(result)
+        
+        vehicle_info = extract_vehicle_info(svv_data)
+        vin = extract_vin_from_svv(svv_data)
+        
+        result['steps']['vehicle_info'] = {
+            'make': vehicle_info.get('make'),
+            'model': vehicle_info.get('model'),
+            'year': vehicle_info.get('year'),
+            'vin': vin,
+            'success': True
+        }
+        
+        # Step 1: Get manufacturers
+        manufacturers_data = get_manufacturers()
+        manufacturers_list = manufacturers_data.get('manufacturers', []) if manufacturers_data else []
+        
+        result['steps']['manufacturers'] = {
+            'success': len(manufacturers_list) > 0,
+            'count': len(manufacturers_list),
+            'sample_brands': [m.get('brand', 'Unknown') for m in manufacturers_list[:5]]
+        }
+        
+        if not manufacturers_list:
+            result['diagnosis'] = 'Failed to get manufacturers from TecDoc'
+            return jsonify(result)
+        
+        # Step 2: Find manufacturer ID
+        manufacturer_id = find_manufacturer_id('NISSAN', manufacturers_list)
+        
+        result['steps']['manufacturer_id'] = {
+            'success': manufacturer_id is not None,
+            'manufacturer_id': manufacturer_id
+        }
+        
+        if not manufacturer_id:
+            result['diagnosis'] = 'Nissan manufacturer not found in TecDoc'
+            return jsonify(result)
+        
+        # Step 3: Get models for manufacturer
+        models = get_models_for_manufacturer(manufacturer_id)
+        
+        result['steps']['models'] = {
+            'success': models is not None,
+            'models_count': len(models.get('models', [])) if isinstance(models, dict) else 0,
+            'sample_models': []
+        }
+        
+        if models and isinstance(models, dict) and 'models' in models:
+            sample_models = models['models'][:5]
+            result['steps']['models']['sample_models'] = [
+                {'model': m.get('model', 'Unknown'), 'modelId': m.get('modelId', 'N/A')} 
+                for m in sample_models
+            ]
+        
+        if not models:
+            result['diagnosis'] = 'Failed to get models for Nissan'
+            return jsonify(result)
+        
+        # Step 4: Find model/vehicle ID
+        vehicle_id = find_model_id('X-TRAIL', 2006, models)
+        
+        result['steps']['vehicle_id'] = {
+            'success': vehicle_id is not None,
+            'vehicle_id': vehicle_id
+        }
+        
+        if not vehicle_id:
+            result['diagnosis'] = 'X-TRAIL 2006 model not found for Nissan'
+            return jsonify(result)
+        
+        # Step 5: Get articles for vehicle (test both product groups)
+        result['steps']['articles'] = []
+        
+        for product_group_id, group_name in [(100260, "Drivaksler"), (100270, "Mellomaksler")]:
+            articles = get_articles_for_vehicle(vehicle_id, product_group_id, manufacturer_id)
+            
+            article_result = {
+                'product_group': group_name,
+                'product_group_id': product_group_id,
+                'success': articles is not None,
+                'articles_count': 0,
+                'oems_count': 0
+            }
+            
+            if articles:
+                articles_list = articles.get('articles', []) if isinstance(articles, dict) else articles
+                article_result['articles_count'] = len(articles_list)
+                
+                if articles_list:
+                    oems = extract_oem_numbers_from_articles({'articles': articles_list})
+                    article_result['oems_count'] = len(oems)
+                    article_result['sample_oems'] = oems[:5]
+            
+            result['steps']['articles'].append(article_result)
+        
+        # Summary
+        total_oems = sum(a.get('oems_count', 0) for a in result['steps']['articles'])
+        
+        if total_oems > 0:
+            result['diagnosis'] = f'SUCCESS: Found {total_oems} OEMs through vehicle-ID lookup'
+        else:
+            successful_articles = [a for a in result['steps']['articles'] if a.get('success')]
+            if successful_articles:
+                result['diagnosis'] = 'Article API calls succeeded but returned 0 OEMs'
+            else:
+                result['diagnosis'] = 'Article API calls failed'
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        result['error'] = str(e)
+        result['traceback'] = traceback.format_exc()
+        return jsonify(result), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
