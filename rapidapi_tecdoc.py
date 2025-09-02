@@ -846,11 +846,19 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
         # Step 3: Get articles for this specific vehicle (MULTIPLE product groups for comprehensive coverage)
         print(f"📋 Step 3: Getting articles for vehicle")
         
-        # Use only the two product groups we know exist in our database - NO expansion
-        # This matches exactly what we sync from Rackbeat (Drivaksel/Mellomaksel only)
+        # EXPANDED: Search ALL relevant drivetrain/axle product groups for comprehensive OEM coverage
+        # This ensures we find ALL OEMs for the vehicle, not just the limited subset we sync
         product_groups = [
-            (100260, "Drivaksler"),      # CV joints/drive shafts
-            (100270, "Mellomaksler"),    # Intermediate shafts
+            (100260, "Drivaksler"),           # CV joints/drive shafts
+            (100270, "Mellomaksler"),         # Intermediate shafts
+            (100250, "Drivaksel komponenter"), # CV joint components
+            (100280, "Akselbolter"),          # Axle bolts
+            (100290, "Akselledd"),            # Axle joints
+            (100300, "Drivaksel tilbehør"),   # Drive shaft accessories
+            (100310, "Hjullager"),            # Wheel bearings
+            (100320, "Hjulnav"),              # Wheel hubs
+            (100330, "Drivstoff komponenter"), # Drivetrain components
+            (100340, "Transmisjon deler"),    # Transmission parts
         ]
         
         all_oem_numbers = []
