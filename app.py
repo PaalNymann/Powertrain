@@ -1420,6 +1420,99 @@ def test_tecdoc_vin(license_plate):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/api/debug/tecdoc_raw/<license_plate>', methods=['GET'])
+def debug_tecdoc_raw(license_plate):
+    """Show RAW TecDoc API response to debug why 0 OEMs are found"""
+    from svv_client import hent_kjoretoydata
+    from rapidapi_tecdoc import extract_vin_from_svv
+    import requests
+    import traceback
+    
+    # TecDoc Configuration
+    RAPIDAPI_KEY = "48a6ede874mshe38f052cb6a6109p12916fjsn0d0c0912c5ed"
+    BASE_URL = "https://tecdoc-catalog.p.rapidapi.com"
+    HEADERS = {
+        'x-rapidapi-host': 'tecdoc-catalog.p.rapidapi.com',
+        'x-rapidapi-key': RAPIDAPI_KEY
+    }
+    
+    result = {
+        'license_plate': license_plate,
+        'vin': '',
+        'raw_responses': [],
+        'diagnosis': ''
+    }
+    
+    try:
+        # Get VIN
+        svv_data = hent_kjoretoydata(license_plate)
+        if not svv_data:
+            result['diagnosis'] = 'No SVV data'
+            return jsonify(result)
+        
+        vin = extract_vin_from_svv(svv_data)
+        if not vin:
+            result['diagnosis'] = 'No VIN extracted'
+            return jsonify(result)
+        
+        result['vin'] = vin
+        
+        # Test the exact endpoint we use in get_articles_by_vin
+        manufacturer_id = 80  # Nissan
+        lang_id = 4
+        country_id = 62
+        type_id = 1
+        
+        for product_group_id, group_name in [(100260, "Drivaksler"), (100270, "Mellomaksler")]:
+            url = (f"{BASE_URL}/articles/list/"
+                   f"vin/{vin}/"
+                   f"product-group-id/{product_group_id}/"
+                   f"manufacturer-id/{manufacturer_id}/"
+                   f"lang-id/{lang_id}/country-filter-id/{country_id}/type-id/{type_id}")
+            
+            raw_result = {
+                'product_group': group_name,
+                'url': url,
+                'status_code': 0,
+                'raw_response': {},
+                'response_size': 0
+            }
+            
+            try:
+                response = requests.get(url, headers=HEADERS, timeout=30)
+                raw_result['status_code'] = response.status_code
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    raw_result['raw_response'] = data
+                    raw_result['response_size'] = len(str(data))
+                else:
+                    raw_result['raw_response'] = {'error': response.text[:500]}
+                    
+            except Exception as e:
+                raw_result['raw_response'] = {'exception': str(e)}
+            
+            result['raw_responses'].append(raw_result)
+        
+        # Diagnosis
+        total_articles = 0
+        for resp in result['raw_responses']:
+            if resp['status_code'] == 200 and 'articles' in resp['raw_response']:
+                articles = resp['raw_response']['articles']
+                total_articles += len(articles) if articles else 0
+        
+        if total_articles > 0:
+            result['diagnosis'] = f'TecDoc returns {total_articles} articles - problem is in OEM extraction'
+        else:
+            result['diagnosis'] = f'TecDoc returns 0 articles for VIN {vin} - check if VIN format or endpoints are correct'
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        result['error'] = str(e)
+        result['traceback'] = traceback.format_exc()
+        return jsonify(result), 500
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
