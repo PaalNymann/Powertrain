@@ -492,6 +492,11 @@ def get_articles_for_vehicle(vehicle_id: int, product_group_id: int, manufacture
             total_count = data.get('countArticles', 0)
             current_articles = data.get('articles', [])
             
+            # CRITICAL FIX: Handle case where articles is None
+            if current_articles is None:
+                current_articles = []
+                print(f"⚠️ Articles field was None, using empty list")
+            
             print(f"✅ Found {total_count} total articles, got {len(current_articles)} in first batch")
             
             # If we have more articles than what we got, we need pagination
