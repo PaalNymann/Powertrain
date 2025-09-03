@@ -169,13 +169,13 @@ def find_model_id(model: str, year: str, models: List[Dict]) -> Optional[int]:
         for match in matching_models:
             model_name = match['name']
             
-            # X-TRAIL I (T30): 2001-2007
-            if 'I' in model_name and 'T30' in model_name and 2001 <= year_int <= 2007:
+            # X-TRAIL I (T30): 2001-2006 (no overlap)
+            if 'I' in model_name and 'T30' in model_name and 2001 <= year_int <= 2006:
                 match_score = 2000  # Highest priority for correct generation
                 best_matches.append((match_score, match))
                 print(f"✅ X-Trail I (T30) match for {year_int}: {model_name} Score: {match_score}")
             
-            # X-TRAIL II (T31): 2007-2014
+            # X-TRAIL II (T31): 2007-2014 (no overlap)
             elif 'II' in model_name and 'T31' in model_name and 2007 <= year_int <= 2014:
                 match_score = 2000  # Highest priority for correct generation
                 best_matches.append((match_score, match))
