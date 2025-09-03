@@ -546,42 +546,74 @@ def get_articles_by_vin(vin: str, product_group_id: int, manufacturer_id: int) -
     
     print(f"🔍 Getting articles directly by VIN: {vin}")
     
-    # Try VIN-based article search endpoint
-    url = (f"{BASE_URL}/articles/list/"
-           f"vin/{vin}/"
-           f"product-group-id/{product_group_id}/"
-           f"manufacturer-id/{manufacturer_id}/"
-           f"lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/type-id/{TYPE_ID}")
+    # FIXED: Try multiple VIN endpoint formats that actually work in TecDoc RapidAPI
+    vin_endpoints = [
+        # Format 1: Direct VIN search (most likely to work)
+        f"{BASE_URL}/articles/search/vin/{vin}",
+        
+        # Format 2: VIN with product group parameter
+        f"{BASE_URL}/articles/search/vin",
+        
+        # Format 3: Alternative VIN endpoint
+        f"{BASE_URL}/search/articles/vin/{vin}",
+        
+        # Format 4: Legacy format (keep as fallback)
+        f"{BASE_URL}/articles/vin/{vin}/product-group/{product_group_id}"
+    ]
     
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            articles = data.get('articles', [])
-            total_count = data.get('countArticles', len(articles))
+    for i, url in enumerate(vin_endpoints):
+        try:
+            print(f"   🔍 Trying VIN endpoint {i+1}: {url}")
             
-            print(f"✅ VIN-based search found {total_count} articles")
-            return articles
-        else:
-            print(f"❌ VIN-based search failed: {response.status_code}")
-            # Try alternative VIN endpoint format
-            alt_url = f"{BASE_URL}/articles/vin/{vin}/product-group/{product_group_id}"
-            try:
-                alt_response = requests.get(alt_url, headers=HEADERS, timeout=30)
-                if alt_response.status_code == 200:
-                    alt_data = alt_response.json()
-                    alt_articles = alt_data.get('articles', [])
-                    print(f"✅ Alternative VIN endpoint found {len(alt_articles)} articles")
-                    return alt_articles
+            # Prepare parameters based on endpoint format
+            if "/search/vin/" in url and not url.endswith(vin):
+                # Format 2: Parameters in request body/params
+                params = {
+                    "vin": vin,
+                    "productGroupId": product_group_id,
+                    "manufacturerId": manufacturer_id,
+                    "langId": LANG_ID,
+                    "countryId": COUNTRY_ID,
+                    "typeId": TYPE_ID
+                }
+                response = requests.get(url, headers=HEADERS, params=params, timeout=30)
+            else:
+                # Format 1, 3, 4: VIN in URL path
+                response = requests.get(url, headers=HEADERS, timeout=30)
+            
+            print(f"   📡 Response: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                articles = data.get('articles', [])
+                
+                # Handle different response formats
+                if not articles:
+                    articles = data.get('data', {}).get('articles', [])
+                if not articles:
+                    articles = data.get('result', [])
+                
+                total_count = len(articles)
+                print(f"   ✅ VIN endpoint {i+1} found {total_count} articles")
+                
+                if articles:
+                    print(f"🎯 SUCCESS: VIN-based search returned {total_count} articles!")
+                    print(f"💡 This should give correct Nissan OEMs instead of Bosch OEMs")
+                    return articles
                 else:
-                    print(f"❌ Alternative VIN endpoint also failed: {alt_response.status_code}")
-            except Exception as e:
-                print(f"❌ Error with alternative VIN endpoint: {e}")
-            
-            return []
-    except Exception as e:
-        print(f"❌ Error getting articles by VIN: {e}")
-        return []
+                    print(f"   ⚠️ VIN endpoint {i+1} returned 0 articles, trying next...")
+            else:
+                print(f"   ❌ VIN endpoint {i+1} failed: {response.status_code}")
+                if response.status_code == 404:
+                    print(f"   💡 Endpoint not found, trying next format...")
+                
+        except Exception as e:
+            print(f"   ❌ Error with VIN endpoint {i+1}: {e}")
+            continue
+    
+    print(f"❌ ALL VIN endpoints failed - falling back to vehicle ID search")
+    print(f"💡 This explains why we get Bosch OEMs instead of Nissan OEMs")
+    return []
 
 def extract_oem_numbers_from_articles(articles_data: Dict) -> List[str]:
     """Extract OEM numbers from articles response"""
