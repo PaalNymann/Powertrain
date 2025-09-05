@@ -89,9 +89,16 @@ def direct_tecdoc_fallback(make, model, year):
     
     print(f"   🌱 Using {len(seed_oems)} seed OEMs for {make} {model}")
     
-    all_oems = []
+    # 🎯 CRITICAL FIX: Use seed OEMs DIRECTLY for database search
+    # Customer-verified OEMs should be used directly, not via TecDoc API expansion
+    all_oems = seed_oems.copy()  # Start with customer-verified OEMs
     start_time = time.time()
     
+    print(f"   ✅ DIRECT SEED STRATEGY: Using customer-verified OEMs directly")
+    print(f"   📋 Seed OEMs: {seed_oems}")
+    
+    # Optional: Try TecDoc expansion for additional OEMs, but seed OEMs are guaranteed
+    expanded_oems = []
     for oem in seed_oems:
         try:
             url = f"{BASE_URL}/articles-oem/search/lang-id/4/article-oem-search-no/{oem}"
@@ -100,27 +107,25 @@ def direct_tecdoc_fallback(make, model, year):
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list) and data:
-                    # Extract OEMs from articles
+                    # Extract additional OEMs from articles
                     for article in data:
                         article_oems = article.get('oemNumbers', [])
                         for oem_obj in article_oems:
                             oem_number = oem_obj.get('oemNumber', '')
                             if oem_number and oem_number not in all_oems:
+                                expanded_oems.append(oem_number)
                                 all_oems.append(oem_number)
                                 
         except Exception as e:
-            print(f"   ⚠️ Error searching OEM {oem}: {e}")
+            print(f"   ⚠️ Error expanding OEM {oem}: {e}")
             continue
     
     fallback_time = time.time() - start_time
     
-    if all_oems:
-        print(f"   ✅ TECDOC SUCCESS: Found {len(all_oems)} OEMs in {fallback_time:.3f}s")
-        print(f"   📋 Sample OEMs: {all_oems[:10]}")
-        return True, all_oems
-    else:
-        print(f"   ❌ TECDOC FAILED: No OEMs found in {fallback_time:.3f}s")
-        return False, []
+    # Always return success with seed OEMs, even if TecDoc expansion fails
+    print(f"   ✅ SEED SUCCESS: {len(seed_oems)} seed OEMs + {len(expanded_oems)} expanded OEMs in {fallback_time:.3f}s")
+    print(f"   📋 Total OEMs: {all_oems[:10]} (showing first 10)")
+    return True, all_oems
 
 def match_oems_to_products(oems):
     """
