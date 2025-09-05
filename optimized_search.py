@@ -593,26 +593,43 @@ def optimized_car_parts_search(license_plate):
                 vehicle_oems = []
         
         if seed_oems:
-            print(f"🌱 Using {len(seed_oems)} seed OEMs for {make_upper} {model_upper}")
+            print(f"🌱 Using {len(seed_oems)} customer-verified seed OEMs for {make_upper} {model_upper}")
             
-            # Get all related OEMs via direct TecDoc search
-            all_oems = []
+            # STRATEGY: Use customer-verified seed OEMs directly for database matching
+            # This bypasses TecDoc expansion which fails for some vehicles (e.g. ZT41818)
+            print(f"🔧 DIRECT SEED STRATEGY: Using seed OEMs directly for database matching")
+            vehicle_oems = seed_oems.copy()  # Use seed OEMs directly
+            
+            # OPTIONAL: Try to expand via TecDoc, but don't fail if it doesn't work
+            print(f"🔍 OPTIONAL: Attempting TecDoc expansion of seed OEMs...")
+            expanded_oems = []
             
             for seed_oem in seed_oems:
                 try:
                     articles = get_articles_by_oem_direct(seed_oem)
-                    for article in articles:
-                        article_oems = article.get('oemNumbers', [])
-                        for oem_obj in article_oems:
-                            oem_number = oem_obj.get('oemNumber', '')
-                            if oem_number and oem_number not in all_oems:
-                                all_oems.append(oem_number)
+                    if articles:
+                        print(f"✅ TecDoc expansion: {seed_oem} → {len(articles)} articles")
+                        for article in articles:
+                            article_oems = article.get('oemNumbers', [])
+                            for oem_obj in article_oems:
+                                oem_number = oem_obj.get('oemNumber', '')
+                                if oem_number and oem_number not in expanded_oems:
+                                    expanded_oems.append(oem_number)
+                    else:
+                        print(f"⚠️ TecDoc expansion: {seed_oem} → 0 articles")
                 except Exception as e:
-                    print(f"⚠️ Error processing seed OEM {seed_oem}: {e}")
+                    print(f"⚠️ TecDoc expansion failed for {seed_oem}: {e}")
                     continue
             
-            vehicle_oems = all_oems
-            print(f"✅ SEED SUCCESS: Found {len(vehicle_oems)} OEMs via seeding")
+            # Combine seed OEMs + expanded OEMs (seed OEMs are guaranteed to be included)
+            if expanded_oems:
+                vehicle_oems.extend(expanded_oems)
+                vehicle_oems = list(dict.fromkeys(vehicle_oems))  # Remove duplicates
+                print(f"✅ COMBINED: {len(seed_oems)} seed + {len(expanded_oems)} expanded = {len(vehicle_oems)} total OEMs")
+            else:
+                print(f"✅ DIRECT SEED ONLY: Using {len(vehicle_oems)} customer-verified OEMs (TecDoc expansion failed)")
+            
+            print(f"🎯 FINAL OEM LIST: {vehicle_oems[:10]}..." if len(vehicle_oems) > 10 else f"🎯 FINAL OEM LIST: {vehicle_oems}")
         
         if not vehicle_oems:
             print(f"❌ FALLBACK FAILED: No OEMs found")
