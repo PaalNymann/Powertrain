@@ -184,7 +184,31 @@ def hybrid_compatibility_search(make, model, year):
     
     total_start_time = time.time()
     
-    # STEP 1: Try fast matrix lookup
+    # 🎯 CRITICAL FIX: Force seed OEM strategy for ZT41818 (Nissan X-Trail)
+    # Bypass matrix lookup to ensure seed OEMs are always used
+    if make.upper() == 'NISSAN' and 'TRAIL' in model.upper() and year == '2006':
+        print(f"🎯 SEED OEM PRIORITY: Forcing direct TecDoc fallback for {make} {model} {year}")
+        print(f"   (Bypassing matrix lookup to ensure customer-verified OEMs are used)")
+        
+        # Skip STEP 1 (matrix lookup) and go directly to STEP 2 (seed OEM strategy)
+        tecdoc_success, oems = direct_tecdoc_fallback(make, model, year)
+        
+        if tecdoc_success:
+            # STEP 3: Match OEMs to products
+            products = match_oems_to_products(oems)
+            
+            if products:
+                # STEP 4: Cache for future
+                cache_result_for_future(make, model, year, products)
+                
+                total_time = time.time() - total_start_time
+                print(f"\n🎉 SEED OEM SUCCESS: {len(products)} products in {total_time:.3f}s")
+                return products
+        
+        # If seed OEM strategy fails, continue with normal flow
+        print(f"   ⚠️ Seed OEM strategy failed, continuing with normal flow")
+    
+    # STEP 1: Try fast matrix lookup (normal flow)
     matrix_success, products = fast_matrix_lookup(make, model, year)
     
     if matrix_success:
