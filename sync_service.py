@@ -62,16 +62,13 @@ def fetch_all_rackbeat() -> list[dict]:
 
 def filter_keep(p:dict) -> bool:
     """Filter products to keep only those that should be synced to Shopify"""
-    # Check stock and price requirements
-    if not (p.get("available_quantity",0) >= 1 and p.get("sales_price",0) > 0):
-        return False
-    
     # Check product group - ONLY Drivaksel and Mellomaksel
     group_name = p.get("group", {}).get("name", "")
     if group_name not in ["Drivaksel", "Mellomaksel"]:
         return False
     
     # Check i_nettbutikk field (webshop availability) - CRITICAL FILTER
+    # USER REQUIREMENT: All products with i_nettbutikk: ja should be included regardless of stock
     i_nettbutikk = extract_custom_field(p, "i_nettbutikk").lower()
     if i_nettbutikk != "ja":
         print(f"🚫 FILTERED OUT: '{p.get('name', 'N/A')[:30]}' - i_nettbutikk: '{i_nettbutikk}' (Group: {group_name})")
@@ -314,7 +311,6 @@ def sync_to_database(product_data, metafields_data):
             existing_product.sku = product_data.get("variants", [{}])[0].get("sku")
             existing_product.price = str(product_data.get("variants", [{}])[0].get("price", 0))
             existing_product.inventory_quantity = product_data.get("variants", [{}])[0].get("inventory_quantity", 0)
-            existing_product.product_type = product_data.get("product_type")
             existing_product.updated_at = datetime.utcnow()
             print(f"   📝 Updated database product: {product_id}")
         else:
@@ -326,7 +322,6 @@ def sync_to_database(product_data, metafields_data):
                 sku=product_data.get("variants", [{}])[0].get("sku"),
                 price=str(product_data.get("variants", [{}])[0].get("price", 0)),
                 inventory_quantity=product_data.get("variants", [{}])[0].get("inventory_quantity", 0),
-                product_type=product_data.get("product_type"),
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
