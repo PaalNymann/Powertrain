@@ -1737,6 +1737,65 @@ def test_search_oem(oem_number):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/test/ma18002')
+def test_ma18002():
+    """Test MA18002 sync eligibility"""
+    try:
+        from sync_service import filter_keep, get_i_nettbutikk_from_metadata
+        
+        # Test product data (simulated MA18002)
+        test_product = {
+            'number': 'MA18002',
+            'group': 'Mellomaksel',
+            'metadata': [
+                {'slug': 'i-nettbutikk', 'value': 'ja'}
+            ]
+        }
+        
+        # Test filter_keep function
+        should_keep = filter_keep(test_product)
+        
+        # Test i_nettbutikk extraction
+        i_nettbutikk = get_i_nettbutikk_from_metadata(test_product.get('metadata', []))
+        
+        result = {
+            'product_number': test_product['number'],
+            'group': test_product['group'],
+            'metadata': test_product['metadata'],
+            'i_nettbutikk_extracted': i_nettbutikk,
+            'should_keep': should_keep,
+            'filter_logic': {
+                'group_match': test_product['group'] in ['Drivaksel', 'Mellomaksel'],
+                'i_nettbutikk_match': i_nettbutikk == 'ja'
+            }
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()})
+
+@app.route('/test/oem/<oem_number>')
+def test_oem_search(oem_number):
+    """Test individual OEM search in database"""
+    try:
+        from optimized_search import search_products_by_oem_optimized
+        
+        print(f"🔍 Testing OEM: {oem_number}")
+        products = search_products_by_oem_optimized(oem_number)
+        
+        result = {
+            'oem_number': oem_number,
+            'products_found': len(products),
+            'products': products[:5] if products else [],  # First 5 products
+            'status': 'found' if products else 'not_found'
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()})
+
 @app.route('/api/debug/reverse_lookup_oem/<oem_number>', methods=['GET'])
 def reverse_lookup_oem(oem_number):
     """Reverse lookup: Search for specific OEM in TecDoc to see what vehicles/products it returns"""
