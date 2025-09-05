@@ -554,30 +554,43 @@ def optimized_car_parts_search(license_plate):
         
         # Smart OEM seeding based on vehicle make/model
         seed_oems = []
+        vehicle_oems = []
         make_upper = vehicle_info['make'].upper()
         model_upper = vehicle_info['model'].upper()
         
+        print(f"🔍 FALLBACK DEBUG: Checking vehicle {make_upper} {model_upper}")
+        
+        # CUSTOMER-VERIFIED SEED OEMs - Priority order
         if 'NISSAN' in make_upper and 'TRAIL' in model_upper:
             seed_oems = [
                 '370008H310', '370008H510', '370008H800',
                 '37000-8H310', '37000-8H510', '37000-8H800'
             ]
+            print(f"✅ NISSAN X-TRAIL DETECTED: Using {len(seed_oems)} customer-verified seed OEMs")
         elif 'VOLKSWAGEN' in make_upper and 'TIGUAN' in model_upper:
             seed_oems = [
                 'A6394107006', '6394107006', 'A6394101916', '6394101916'
             ]
+            print(f"✅ VW TIGUAN DETECTED: Using {len(seed_oems)} seed OEMs")
         elif 'MERCEDES' in make_upper and 'GLK' in model_upper:
             seed_oems = [
                 'A2043300900', '2043300900', 'A2043301000', '2043301000'
             ]
-        else:
-            print(f"⚠️ No seed OEMs for {make_upper} {model_upper} - using generic TecDoc")
-            # Try generic TecDoc approach
-            vehicle_oems = list(get_all_oems_for_vehicle_direct(
-                vehicle_info['make'], 
-                vehicle_info['model'], 
-                vehicle_info['year']
-            ))
+            print(f"✅ MERCEDES GLK DETECTED: Using {len(seed_oems)} seed OEMs")
+        
+        # If no customer-verified seeds, try generic TecDoc approach
+        if not seed_oems:
+            print(f"⚠️ No customer-verified seed OEMs for {make_upper} {model_upper} - trying generic TecDoc")
+            try:
+                vehicle_oems = list(get_all_oems_for_vehicle_direct(
+                    vehicle_info['make'], 
+                    vehicle_info['model'], 
+                    vehicle_info['year']
+                ))
+                print(f"🔍 Generic TecDoc returned {len(vehicle_oems)} OEMs")
+            except Exception as e:
+                print(f"❌ Generic TecDoc failed: {e}")
+                vehicle_oems = []
         
         if seed_oems:
             print(f"🌱 Using {len(seed_oems)} seed OEMs for {make_upper} {model_upper}")
