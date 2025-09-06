@@ -527,47 +527,75 @@ def optimized_car_parts_search(license_plate):
         step1_time = time.time() - start_time
         print(f"⏱️  Step 1 completed in {step1_time:.2f}s")
         
-        # Step 2: Get comprehensive OEMs using VIN → TecDoc approach
+        # Step 2: HYBRID COMPATIBILITY LOOKUP
+        print(f"⚡ Step 2: Hybrid compatibility lookup...")
         step2_start = time.time()
-        print(f"🔍 Step 2: Getting comprehensive OEMs using VIN → TecDoc...")
         
-        vehicle_oems = set()
-        make = vehicle_info['make']
-        model = vehicle_info['model']
-        year = str(vehicle_info['year'])
+        # 2A: Try fast matrix lookup first
+        matrix_products = []
+        matrix_success = False
         
-        # Strategy 1: VIN-based TecDoc lookup (if VIN available)
-        if vin:
-            print(f"🔍 Strategy 1: VIN-based TecDoc lookup")
-            try:
-                vin_oems = get_oems_from_vin_tecdoc(vin)
-                if vin_oems:
-                    vehicle_oems.update(vin_oems)
-                    print(f"✅ VIN lookup: {len(vin_oems)} OEMs found")
-                else:
-                    print(f"⚠️ VIN lookup returned no OEMs")
-            except Exception as e:
-                print(f"⚠️ VIN lookup failed: {e}")
-        
-        # Strategy 2: Direct manufacturer search in TecDoc
-        print(f"🔍 Strategy 2: Direct manufacturer search")
         try:
-            manufacturer_oems = get_oems_from_manufacturer_search(make)
-            if manufacturer_oems:
-                vehicle_oems.update(manufacturer_oems)
-                print(f"✅ Manufacturer search: {len(manufacturer_oems)} OEMs found")
+            from compatibility_matrix import fast_compatibility_lookup
+            matrix_products = fast_compatibility_lookup(
+                vehicle_info['make'], 
+                vehicle_info['model'], 
+                vehicle_info['year']
+            )
+            
+            if matrix_products and len(matrix_products) > 0:
+                matrix_success = True
+                print(f"✅ MATRIX HIT: Found {len(matrix_products)} products instantly")
+                
+                # Convert matrix products to expected format
+                final_products = []
+                for product in matrix_products:
+                    # Matrix products already have the right format
+                    final_products.append(product)
+                
+                step2_time = time.time() - step2_start
+                total_time = time.time() - start_time
+                
+                print(f"⚡ MATRIX SUCCESS: {len(final_products)} products in {total_time:.3f}s total")
+                
+                return {
+                    'vehicle_info': vehicle_info,
+                    'available_oems': 'matrix_cached',
+                    'compatible_oems': len(final_products),
+                    'shopify_parts': final_products,
+                    'message': f'Found {len(final_products)} compatible parts via matrix cache',
+                    'performance': {
+                        'total_time': round(total_time, 3),
+                        'lookup_method': 'matrix_cache',
+                        'matrix_hit': True
+                    }
+                }
+            else:
+                print(f"❌ MATRIX MISS: No products found in matrix")
+                
+        except ImportError:
+            print(f"⚠️ Matrix system not available")
         except Exception as e:
-            print(f"⚠️ Manufacturer search failed: {e}")
+            print(f"⚠️ Matrix lookup error: {e}")
         
-        # Strategy 3: Customer-verified OEMs (for known cases)
-        print(f"🔍 Strategy 3: Customer-verified OEMs")
-        if 'NISSAN' in make.upper() and 'X-TRAIL' in model.upper():
-            customer_oems = {
-                '370008H310', '370008H510', '370008H800', 
+        # 2B: Matrix miss - use direct TecDoc fallback with smart OEM seeding
+        print(f"🔍 FALLBACK: Using direct TecDoc search with OEM seeding...")
+        
+        # Smart OEM seeding based on vehicle make/model
+        seed_oems = []
+        vehicle_oems = []
+        make_upper = vehicle_info['make'].upper()
+        model_upper = vehicle_info['model'].upper()
+        
+        print(f"🔍 FALLBACK DEBUG: Checking vehicle {make_upper} {model_upper}")
+        
+        # CUSTOMER-VERIFIED SEED OEMs - Priority order
+        if 'NISSAN' in make_upper and 'TRAIL' in model_upper:
+            seed_oems = [
+                '370008H310', '370008H510', '370008H800',
                 '37000-8H310', '37000-8H510', '37000-8H800'
-            }
-            vehicle_oems.update(customer_oems)
-            print(f"✅ Added {len(customer_oems)} customer-verified Nissan X-Trail OEMs")
+            ]
+            print(f"✅ NISSAN X-TRAIL DETECTED: Using {len(seed_oems)} customer-verified seed OEMs")
         
         # Strategy 4: Validate OEMs exist in TecDoc
         print(f"🔍 Strategy 4: Validating OEMs in TecDoc")
