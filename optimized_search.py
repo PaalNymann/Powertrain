@@ -494,30 +494,38 @@ def search_products_by_oem_optimized(oem_number):
 
 def optimized_car_parts_search(license_plate):
     """
-    HYBRID COMPATIBILITY SYSTEM: Fast matrix lookup + Direct TecDoc fallback + Auto-caching
-    Performance: Instant for known vehicles, seconds for unknown vehicles (then cached)
+    COMPLETE VIN → TecDoc → OEM → Database Matching Solution
+    Uses correct TecDoc VIN decoder v3 + comprehensive OEM lookup + database matching
     """
+    print(f"🚗 COMPLETE VIN → TECDOC → OEM → DATABASE SEARCH: {license_plate}")
     start_time = time.time()
-    print(f"🚗 HYBRID SEARCH: Starting search for license plate {license_plate}")
     
     try:
-        # Step 1: Get vehicle data from SVV
+        # Step 1: Get vehicle info from SVV (including VIN)
+        print(f"📋 Step 1: Getting vehicle info from SVV...")
         from svv_client import hent_kjoretoydata
         from app import extract_vehicle_info
         
-        print(f"📋 Step 1: Getting vehicle data from SVV...")
-        step1_start = time.time()
-        
         vehicle_data = hent_kjoretoydata(license_plate)
         if not vehicle_data:
-            return {'error': 'Could not retrieve vehicle data'}
+            return {'error': 'Could not fetch vehicle data from SVV'}
         
         vehicle_info = extract_vehicle_info(vehicle_data)
         if not vehicle_info:
             return {'error': 'Could not extract vehicle information'}
         
-        step1_time = time.time() - step1_start
-        print(f"✅ Step 1 completed in {step1_time:.2f}s: {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        print(f"✅ Vehicle: {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        
+        # Extract VIN for TecDoc lookup
+        vin = vehicle_info.get('chassis_number', '') or vehicle_info.get('vin', '') or vehicle_info.get('understellsnummer', '')
+        if vin:
+            print(f"✅ VIN extracted: {vin}")
+        else:
+            print(f"⚠️ No VIN found, using make/model/year approach")
+            vin = ''  # Ensure vin is defined for later use
+        
+        step1_time = time.time() - start_time
+        print(f"⏱️  Step 1 completed in {step1_time:.2f}s")
         
         # Step 2: HYBRID COMPATIBILITY LOOKUP
         print(f"⚡ Step 2: Hybrid compatibility lookup...")
