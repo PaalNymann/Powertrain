@@ -494,311 +494,176 @@ def search_products_by_oem_optimized(oem_number):
 
 def optimized_car_parts_search(license_plate):
     """
-    HYBRID COMPATIBILITY SYSTEM: Fast matrix lookup + Direct TecDoc fallback + Auto-caching
-    Performance: Instant for known vehicles, seconds for unknown vehicles (then cached)
+    COMPLETE END-TO-END SOLUTION WITH INTELLIGENT CACHING: Norwegian License Plate → Compatible Powertrain Parts
+    Norwegian License Plate → SVV → TecDoc VIN/Vehicle → OEM numbers → Rackbeat/Shopify database → Compatible parts
+    Includes intelligent caching for lightning-fast customer experience on repeat searches
     """
     start_time = time.time()
-    print(f"🚗 HYBRID SEARCH: Starting search for license plate {license_plate}")
+    print(f"🚗 COMPLETE SEARCH WITH CACHING: {license_plate} → SVV → TecDoc → Rackbeat/Shopify")
     
     try:
-        # Step 1: Get vehicle data from SVV
+        # Step 0: Check cache first for instant results
+        print(f"💾 Step 0: Checking cache for {license_plate}...")
+        try:
+            from compatibility_matrix import get_cached_compatibility_result
+            cached_result = get_cached_compatibility_result(license_plate)
+            if cached_result:
+                cache_time = time.time() - start_time
+                print(f"🚀 CACHE HIT! Returning {len(cached_result)} parts in {cache_time:.3f}s")
+                return {
+                    'vehicle_info': cached_result.get('vehicle_info', {}),
+                    'available_oems': cached_result.get('available_oems', 0),
+                    'compatible_oems': len(cached_result.get('shopify_parts', [])),
+                    'shopify_parts': cached_result.get('shopify_parts', []),
+                    'message': f"Found {len(cached_result.get('shopify_parts', []))} compatible Powertrain parts (cached)",
+                    'performance': {
+                        'total_time': round(cache_time, 3),
+                        'lookup_method': 'cached_result',
+                        'cache_hit': True
+                    }
+                }
+        except ImportError:
+            print(f"ℹ️ Cache system not available, proceeding with live lookup")
+        except Exception as e:
+            print(f"⚠️ Cache check failed: {e}, proceeding with live lookup")
+        
+        # Step 1: Get vehicle info from SVV (including VIN if available)
         from svv_client import hent_kjoretoydata
         from app import extract_vehicle_info
         
-        print(f"📋 Step 1: Getting vehicle data from SVV...")
-        step1_start = time.time()
-        
+        print(f"📋 Step 1: Getting vehicle info from SVV...")
         vehicle_data = hent_kjoretoydata(license_plate)
         if not vehicle_data:
-            return {'error': 'Could not retrieve vehicle data'}
+            return {'error': 'Could not retrieve vehicle data from SVV'}
         
         vehicle_info = extract_vehicle_info(vehicle_data)
         if not vehicle_info:
             return {'error': 'Could not extract vehicle information'}
         
-        step1_time = time.time() - step1_start
-        print(f"✅ Step 1 completed in {step1_time:.2f}s: {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        # Extract VIN/chassis number for TecDoc lookup
+        vin = vehicle_info.get('chassis_number', '') or vehicle_info.get('vin', '') or vehicle_info.get('understellsnummer', '')
+        make = vehicle_info['make']
+        model = vehicle_info['model'] 
+        year = str(vehicle_info['year'])
         
-        # Step 2: HYBRID COMPATIBILITY LOOKUP
-        print(f"⚡ Step 2: Hybrid compatibility lookup...")
-        step2_start = time.time()
+        print(f"✅ Vehicle: {make} {model} {year}")
+        if vin:
+            print(f"✅ VIN: {vin}")
         
-        # 2A: Try fast matrix lookup first
-        matrix_products = []
-        matrix_success = False
+        # Step 2: Get OEM numbers from TecDoc using VIN (most accurate) or vehicle info
+        print(f"🔍 Step 2: Getting OEM numbers from TecDoc...")
         
-        try:
-            from compatibility_matrix import fast_compatibility_lookup
-            matrix_products = fast_compatibility_lookup(
-                vehicle_info['make'], 
-                vehicle_info['model'], 
-                vehicle_info['year']
-            )
-            
-            if matrix_products and len(matrix_products) > 0:
-                matrix_success = True
-                print(f"✅ MATRIX HIT: Found {len(matrix_products)} products instantly")
-                
-                # Convert matrix products to expected format
-                final_products = []
-                for product in matrix_products:
-                    # Matrix products already have the right format
-                    final_products.append(product)
-                
-                step2_time = time.time() - step2_start
-                total_time = time.time() - start_time
-                
-                print(f"⚡ MATRIX SUCCESS: {len(final_products)} products in {total_time:.3f}s total")
-                
-                return {
-                    'vehicle_info': vehicle_info,
-                    'available_oems': 'matrix_cached',
-                    'compatible_oems': len(final_products),
-                    'shopify_parts': final_products,
-                    'message': f'Found {len(final_products)} compatible parts via matrix cache',
-                    'performance': {
-                        'total_time': round(total_time, 3),
-                        'lookup_method': 'matrix_cache',
-                        'matrix_hit': True
-                    }
-                }
-            else:
-                print(f"❌ MATRIX MISS: No products found in matrix")
-                
-        except ImportError:
-            print(f"⚠️ Matrix system not available")
-        except Exception as e:
-            print(f"⚠️ Matrix lookup error: {e}")
+        vehicle_oems = set()
         
-        # 2B: Matrix miss - use direct TecDoc fallback with smart OEM seeding
-        print(f"🔍 FALLBACK: Using direct TecDoc search with OEM seeding...")
-        
-        # Smart OEM seeding based on vehicle make/model
-        seed_oems = []
-        vehicle_oems = []
-        make_upper = vehicle_info['make'].upper()
-        model_upper = vehicle_info['model'].upper()
-        
-        print(f"🔍 FALLBACK DEBUG: Checking vehicle {make_upper} {model_upper}")
-        
-        # CUSTOMER-VERIFIED SEED OEMs - Priority order
-        if 'NISSAN' in make_upper and 'TRAIL' in model_upper:
-            seed_oems = [
-                '370008H310', '370008H510', '370008H800',
-                '37000-8H310', '37000-8H510', '37000-8H800'
-            ]
-            print(f"✅ NISSAN X-TRAIL DETECTED: Using {len(seed_oems)} customer-verified seed OEMs")
-        elif 'VOLKSWAGEN' in make_upper and 'TIGUAN' in model_upper:
-            seed_oems = [
-                'A6394107006', '6394107006', 'A6394101916', '6394101916'
-            ]
-            print(f"✅ VW TIGUAN DETECTED: Using {len(seed_oems)} seed OEMs")
-        elif 'MERCEDES' in make_upper and 'GLK' in model_upper:
-            seed_oems = [
-                'A2043300900', '2043300900', 'A2043301000', '2043301000'
-            ]
-            print(f"✅ MERCEDES GLK DETECTED: Using {len(seed_oems)} seed OEMs")
-        
-        # If no customer-verified seeds, try generic TecDoc approach
-        if not seed_oems:
-            print(f"⚠️ No customer-verified seed OEMs for {make_upper} {model_upper} - trying generic TecDoc")
+        if vin:
+            # VIN is available - use VIN decoder (most accurate)
             try:
-                vehicle_oems = list(get_all_oems_for_vehicle_direct(
-                    vehicle_info['make'], 
-                    vehicle_info['model'], 
-                    vehicle_info['year']
-                ))
-                print(f"🔍 Generic TecDoc returned {len(vehicle_oems)} OEMs")
+                url = f"{BASE_URL}/vin-decoder/v3/{vin}"
+                response = requests.get(url, headers=HEADERS, timeout=15)
+                if response.status_code == 200:
+                    vin_data = response.json()
+                    print(f"✅ VIN decoded successfully")
+                    
+                    # Extract vehicle details and get OEMs
+                    if isinstance(vin_data, list) and len(vin_data) > 0:
+                        vehicle_details = vin_data[0].get('information', {})
+                        # Use the decoded vehicle info to get OEMs
+                        decoded_make = vehicle_details.get('make', make)
+                        decoded_model = vehicle_details.get('model', model)
+                        decoded_year = vehicle_details.get('year', year)
+                        
+                        # Get OEMs using decoded vehicle info
+                        vehicle_oems = get_all_oems_for_vehicle_direct(decoded_make, decoded_model, decoded_year)
+                        print(f"✅ VIN-based lookup: {len(vehicle_oems)} OEMs found")
+                else:
+                    print(f"⚠️ VIN lookup failed: {response.status_code}, falling back to vehicle info")
+                    # Fallback to vehicle info if VIN fails
+                    vehicle_oems = get_all_oems_for_vehicle_direct(make, model, year)
+                    print(f"✅ Vehicle info fallback: {len(vehicle_oems)} OEMs found")
             except Exception as e:
-                print(f"❌ Generic TecDoc failed: {e}")
-                vehicle_oems = []
-        
-        if seed_oems:
-            print(f"🌱 Using {len(seed_oems)} customer-verified seed OEMs for {make_upper} {model_upper}")
-            
-            # STRATEGY: Use customer-verified seed OEMs directly for database matching
-            # This bypasses TecDoc expansion which fails for some vehicles (e.g. ZT41818)
-            print(f"🔧 DIRECT SEED STRATEGY: Using seed OEMs directly for database matching")
-            vehicle_oems = seed_oems.copy()  # Use seed OEMs directly
-            
-            # OPTIONAL: Try to expand via TecDoc, but don't fail if it doesn't work
-            print(f"🔍 OPTIONAL: Attempting TecDoc expansion of seed OEMs...")
-            expanded_oems = []
-            
-            for seed_oem in seed_oems:
-                try:
-                    articles = get_articles_by_oem_direct(seed_oem)
-                    if articles:
-                        print(f"✅ TecDoc expansion: {seed_oem} → {len(articles)} articles")
-                        for article in articles:
-                            article_oems = article.get('oemNumbers', [])
-                            for oem_obj in article_oems:
-                                oem_number = oem_obj.get('oemNumber', '')
-                                if oem_number and oem_number not in expanded_oems:
-                                    expanded_oems.append(oem_number)
-                    else:
-                        print(f"⚠️ TecDoc expansion: {seed_oem} → 0 articles")
-                except Exception as e:
-                    print(f"⚠️ TecDoc expansion failed for {seed_oem}: {e}")
-                    continue
-            
-            # Combine seed OEMs + expanded OEMs (seed OEMs are guaranteed to be included)
-            if expanded_oems:
-                vehicle_oems.extend(expanded_oems)
-                vehicle_oems = list(dict.fromkeys(vehicle_oems))  # Remove duplicates
-                print(f"✅ COMBINED: {len(seed_oems)} seed + {len(expanded_oems)} expanded = {len(vehicle_oems)} total OEMs")
-            else:
-                print(f"✅ DIRECT SEED ONLY: Using {len(vehicle_oems)} customer-verified OEMs (TecDoc expansion failed)")
-            
-            print(f"🎯 FINAL OEM LIST: {vehicle_oems[:10]}..." if len(vehicle_oems) > 10 else f"🎯 FINAL OEM LIST: {vehicle_oems}")
+                print(f"⚠️ VIN lookup error: {e}, falling back to vehicle info")
+                # Fallback to vehicle info if VIN fails
+                vehicle_oems = get_all_oems_for_vehicle_direct(make, model, year)
+                print(f"✅ Vehicle info fallback: {len(vehicle_oems)} OEMs found")
+        else:
+            # No VIN available - use vehicle info
+            print(f"ℹ️ No VIN available, using vehicle info: {make} {model} {year}")
+            vehicle_oems = get_all_oems_for_vehicle_direct(make, model, year)
+            print(f"✅ Vehicle info lookup: {len(vehicle_oems)} OEMs found")
         
         if not vehicle_oems:
-            print(f"❌ FALLBACK FAILED: No OEMs found")
             return {
                 'vehicle_info': vehicle_info,
                 'available_oems': 0,
                 'compatible_oems': 0,
                 'shopify_parts': [],
-                'message': 'No OEM numbers found for this vehicle via matrix or TecDoc fallback'
+                'message': 'No OEMs found from TecDoc for this vehicle',
+                'performance': {
+                    'total_time': round(time.time() - start_time, 2),
+                    'lookup_method': 'live_tecdoc_complete'
+                }
             }
         
-        # Ensure unique, vehicle-specific OEMs only
-        if vehicle_oems:
-            # Deduplicate while preserving order
-            vehicle_oems = list(dict.fromkeys(vehicle_oems))
-            print(f"🔧 Using {len(vehicle_oems)} vehicle-specific OEMs after de-duplication")
-
-        step2_time = time.time() - step2_start
-        print(f"⏱️  Step 2 completed in {step2_time:.2f}s (found {len(vehicle_oems)} OEM numbers)")
+        # Step 3: Match OEMs against Rackbeat/Shopify database
+        print(f"🔍 Step 3: Matching {len(vehicle_oems)} OEMs against Rackbeat/Shopify database...")
         
-        if not vehicle_oems:
-            return {
-                'vehicle_info': vehicle_info,
-                'available_oems': 0,
-                'compatible_oems': [],
-                'matching_products': [],
-                'message': 'No OEM numbers found in cache for this vehicle'
-            }
-        
-        # Step 3: MATCH OEMs AGAINST SHOPIFY - Find products with matching Original_nummer
-        print(f"🛍️ Step 3: MATCH OEMs AGAINST SHOPIFY - Searching Original_nummer field...")
-        step3_start = time.time()
-        
-        all_matching_products = []
-        for oem_number in vehicle_oems:
-            matching_products = search_products_by_oem_optimized(oem_number)
-            
-            if matching_products:
-                for product in matching_products:
-                    product['matched_oem'] = oem_number
-                    all_matching_products.append(product)
+        matched_products = []
+        for oem in vehicle_oems:
+            try:
+                products = search_products_by_oem_optimized(oem)
+                if products:
+                    for product in products:
+                        product['matched_oem'] = oem
+                        matched_products.append(product)
+                        print(f"✅ MATCH: {product.get('title', 'Unknown')} via OEM {oem}")
+            except Exception as e:
+                print(f"⚠️ Error searching OEM {oem}: {e}")
+                continue
         
         # Remove duplicates
-        unique_products = {}
-        for product in all_matching_products:
-            product_id = product.get('id')
-            if product_id and product_id not in unique_products:
-                unique_products[product_id] = product
-        
-        matched_products = list(unique_products.values())
-        
-        # Step 4: ENHANCED MODEL FILTERING - Filter out incompatible models (STRICT)
-        print(f"🎯 Step 4: ENHANCED MODEL FILTERING - Filtering for {vehicle_info['make']} {vehicle_info['model']}...")
-        
-        final_products = []
-        vehicle_model = vehicle_info['model'].upper()
-        vehicle_make = vehicle_info['make'].upper()
-        
+        seen_ids = set()
+        unique_products = []
         for product in matched_products:
-            is_compatible = True
-            product_title = product.get('title', '').upper()
-            matched_oem = product.get('matched_oem', 'Unknown')
-            
-            # SIMPLIFIED: If OEM matching found the product, it's compatible
-            # Brand filtering should never override direct OEM matches
-            brand_compatible = True
-            print(f"✅ OEM MATCH: {product.get('title', '')} (found via direct OEM matching for {vehicle_make})")
-            
-            # Model filtering (only if brand is compatible)
-            if is_compatible:
-                # For Mercedes GLK - exclude other Mercedes models (STRICT)
-                if 'GLK' in vehicle_model and 'MERCEDES' in vehicle_make:
-                    incompatible = ['VITO', 'SPRINTER', 'VIANO', 'E-CLASS', 'E-KLASSE', 'C-CLASS', 'C-KLASSE', 'S-CLASS', 'S-KLASSE', 'ML-CLASS', 'GLC', 'GLE', 'GLS']
-                    if any(model in product_title for model in incompatible):
-                        is_compatible = False
-                        print(f"❌ MODEL EXCLUDED: {product.get('title', '')} (incompatible Mercedes model for GLK)")
-                
-                # For VW Tiguan - exclude other VW models  
-                elif 'TIGUAN' in vehicle_model and 'VOLKSWAGEN' in vehicle_make:
-                    incompatible = ['GOLF', 'PASSAT', 'POLO', 'TOURAN', 'SHARAN', 'CADDY', 'TRANSPORTER', 'AMAROK', 'ARTEON']
-                    if any(model in product_title for model in incompatible):
-                        is_compatible = False
-                        print(f"❌ MODEL EXCLUDED: {product.get('title', '')} (incompatible VW model for Tiguan)")
-                
-                # For Volvo V70 - exclude other Volvo models
-                elif 'V70' in vehicle_model and 'VOLVO' in vehicle_make:
-                    incompatible = ['XC90', 'XC60', 'S60', 'S80', 'V40', 'V50', 'V90', 'XC70', 'XC40']
-                    if any(model in product_title for model in incompatible):
-                        is_compatible = False
-                        print(f"❌ MODEL EXCLUDED: {product.get('title', '')} (incompatible Volvo model for V70)")
-            
-            if is_compatible:
-                print(f"✅ COMPATIBLE: {product.get('title', '')} (OEM: {matched_oem})")
-                final_products.append(product)
-        
-        print(f"✅ ENHANCED MODEL FILTERING COMPLETE: {len(final_products)} compatible products (filtered from {len(matched_products)})")
-        
-        # Debug: Show which OEMs were matched for each product
-        for product in final_products[:5]:  # Show first 5 for debugging
-            product_id = product.get('id', 'Unknown')
-            product_title = product.get('title', 'Unknown')
-            matched_oem = product.get('matched_oem', 'Unknown')
-            print(f"🔍 Product {product_id}: '{product_title}' matched OEM: {matched_oem}")
-        
-        step3_time = time.time() - step3_start
-        print(f"⏱️  Steps 3-4 completed in {step3_time:.2f}s (found {len(final_products)} products)")
-        
-        # Step 4: AUTO-CACHE RESULTS for future fast lookup (if we used fallback)
-        if not matrix_success and final_products:
-            print(f"💾 Step 4: Auto-caching results for future fast lookup...")
-            try:
-                from compatibility_matrix import cache_compatibility_result
-                cache_compatibility_result(
-                    vehicle_info['make'], 
-                    vehicle_info['model'], 
-                    vehicle_info['year'], 
-                    final_products
-                )
-                print(f"✅ CACHED: {len(final_products)} products for future instant lookup")
-            except ImportError:
-                print(f"⚠️ Cache system not available for auto-caching")
-            except Exception as e:
-                print(f"⚠️ Auto-caching failed: {e}")
+            product_id = product.get('id')
+            if product_id and product_id not in seen_ids:
+                seen_ids.add(product_id)
+                unique_products.append(product)
         
         total_time = time.time() - start_time
-        lookup_method = 'matrix_cache' if matrix_success else 'tecdoc_fallback'
+        print(f"🎯 COMPLETE SEARCH FINISHED: {len(unique_products)} compatible parts in {total_time:.2f}s")
         
-        print(f"🎯 HYBRID SEARCH COMPLETED in {total_time:.2f}s total")
-        print(f"📊 Method: {lookup_method}, Performance: Step2={step2_time:.2f}s, Steps3-4={step3_time:.2f}s")
+        # Step 4: Auto-cache results for lightning-fast future lookups
+        print(f"💾 Step 4: Auto-caching results for future instant lookups...")
+        try:
+            from compatibility_matrix import cache_compatibility_result_by_license_plate
+            result_to_cache = {
+                'vehicle_info': vehicle_info,
+                'available_oems': len(vehicle_oems),
+                'shopify_parts': unique_products
+            }
+            cache_compatibility_result_by_license_plate(license_plate, result_to_cache)
+            print(f"✅ CACHED: {len(unique_products)} parts for {license_plate} → future searches will be instant!")
+        except ImportError:
+            print(f"ℹ️ Cache system not available for auto-caching")
+        except Exception as e:
+            print(f"⚠️ Auto-caching failed: {e}")
         
         return {
             'vehicle_info': vehicle_info,
-            'available_oems': len(vehicle_oems) if not matrix_success else 'matrix_cached',
-            'compatible_oems': len(final_products),
-            'shopify_parts': final_products,
-            'message': f'Found {len(final_products)} compatible parts via {lookup_method}',
+            'available_oems': len(vehicle_oems),
+            'compatible_oems': len(unique_products),
+            'shopify_parts': unique_products,
+            'message': f'Found {len(unique_products)} compatible Powertrain parts for {make} {model} {year}',
             'performance': {
                 'total_time': round(total_time, 2),
-                'step2_time': round(step2_time, 2),
-                'step3_time': round(step3_time, 2),
-                'lookup_method': lookup_method,
-                'matrix_hit': matrix_success,
-                'auto_cached': not matrix_success and len(final_products) > 0
+                'lookup_method': 'live_tecdoc_complete',
+                'vin_used': bool(vin),
+                'auto_cached': True
             }
         }
         
     except Exception as e:
-        print(f"❌ Error in optimized search: {e}")
+        print(f"❌ Error in complete search: {e}")
         import traceback
         traceback.print_exc()
         return {'error': 'Internal server error', 'details': str(e)}
