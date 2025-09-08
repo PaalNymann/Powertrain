@@ -1844,6 +1844,56 @@ def reverse_lookup_oem(oem_number):
         result['traceback'] = traceback.format_exc()
         return jsonify(result), 500
 
+@app.route('/api/debug/metafields', methods=['GET'])
+def debug_metafields():
+    """Debug endpoint to show what's actually in the metafields database"""
+    from database import SessionLocal, ProductMetafield
+    
+    session = SessionLocal()
+    try:
+        # Get sample original_nummer metafields
+        original_nummer_samples = session.query(ProductMetafield).filter(
+            ProductMetafield.key == 'original_nummer'
+        ).limit(10).all()
+        
+        # Count total metafields
+        total_original_nummer = session.query(ProductMetafield).filter(
+            ProductMetafield.key == 'original_nummer'
+        ).count()
+        
+        # Search for Nissan-like patterns
+        nissan_patterns = ['37000', '8H310', '370008H310', '37000-8H310']
+        nissan_matches = {}
+        
+        for pattern in nissan_patterns:
+            matches = session.query(ProductMetafield).filter(
+                (ProductMetafield.key == 'original_nummer') & 
+                (ProductMetafield.value.contains(pattern))
+            ).limit(5).all()
+            
+            nissan_matches[pattern] = [
+                {
+                    "product_id": m.product_id,
+                    "value": m.value
+                } for m in matches
+            ]
+        
+        return jsonify({
+            "total_original_nummer_metafields": total_original_nummer,
+            "sample_original_nummer": [
+                {
+                    "product_id": m.product_id,
+                    "value": m.value
+                } for m in original_nummer_samples
+            ],
+            "nissan_pattern_matches": nissan_matches
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        session.close()
+
 if __name__ == '__main__':
     # Validate environment variables first
     if not validate_environment():
