@@ -891,65 +891,93 @@ def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_
     if svv_data:
         vin = extract_vin_from_svv(svv_data)
         if vin:
-            print(f"🎯 Using VIN for precise TecDoc lookup: {vin}")
+            print(f"🎯 VIN available: {vin}")
     
-    # Get manufacturer ID
-    manufacturers_data = get_manufacturers()
-    if not manufacturers_data:
-        print(f"❌ Could not get manufacturers from TecDoc")
-        return []
+    # Use the WORKING OEM search strategy with product group filtering
+    print(f"🔍 Using WORKING OEM search endpoints with product group filtering")
     
-    manufacturers = manufacturers_data.get('manufacturers', [])
-    manufacturer_id = find_manufacturer_id(brand, manufacturers)
-    
-    if not manufacturer_id:
-        print(f"❌ Could not find manufacturer ID for {brand}")
-        return []
-    
-    print(f"✅ Found manufacturer ID: {manufacturer_id} for {brand}")
-    
-    all_oems = []
-    
-    # Search for BOTH product groups: Drivaksler AND Mellomaksler
-    product_groups = [
-        (100260, "Drivaksler"),  # CV joints/drive shafts
-        (100270, "Mellomaksler") # Intermediate shafts
-    ]
-    
-    for product_group_id, group_name in product_groups:
-        print(f"🔍 Searching {group_name} (ID: {product_group_id}) for {brand} {model} {year}")
+    # Get all available OEMs from our database for the specific product groups
+    try:
+        from database import get_available_oems_from_database
+        available_oems = get_available_oems_from_database()
+        print(f"📦 Found {len(available_oems)} available OEMs in database")
         
-        try:
-            if vin:
-                # Use VIN-based search for precise results
-                articles_data = get_articles_by_vin(vin, product_group_id, manufacturer_id)
-            else:
-                # Fallback to vehicle-based search
-                articles_data = get_articles_by_vehicle_and_group(manufacturer_id, model, str(year), product_group_id)
+        if not available_oems:
+            print(f"❌ No OEMs available in database")
+            return []
+        
+        # Test each OEM against TecDoc to see if it's compatible with this vehicle
+        compatible_oems = []
+        
+        # Limit to reasonable batch size for performance
+        test_limit = min(100, len(available_oems))
+        print(f"🔍 Testing {test_limit} OEMs for compatibility with {brand} {model} {year}")
+        
+        for i, oem in enumerate(available_oems[:test_limit]):
+            if i % 10 == 0:
+                print(f"   Progress: {i}/{test_limit} OEMs tested")
             
-            if articles_data:
-                group_oems = extract_oem_numbers_from_articles(articles_data)
-                if group_oems:
-                    print(f"✅ Found {len(group_oems)} OEMs for {group_name}")
-                    all_oems.extend(group_oems)
-                else:
-                    print(f"⚠️ No OEMs found for {group_name}")
-            else:
-                print(f"⚠️ No articles found for {group_name}")
+            try:
+                # Use the WORKING endpoint to search for this OEM
+                search_url = f"{BASE_URL}/articles-oem/search/lang-id/{LANG_ID}/article-oem-search-no/{oem}"
+                response = requests.get(search_url, headers=HEADERS, timeout=5)
                 
-        except Exception as e:
-            print(f"❌ Error searching {group_name}: {e}")
-    
-    # Remove duplicates while preserving order
-    unique_oems = []
-    seen = set()
-    for oem in all_oems:
-        if oem not in seen:
-            seen.add(oem)
-            unique_oems.append(oem)
-    
-    print(f"✅ Total unique OEMs found: {len(unique_oems)} (filtered by product groups)")
-    return unique_oems
+                if response.status_code == 200:
+                    articles = response.json()
+                    
+                    if articles and len(articles) > 0:
+                        # Get article details to check vehicle compatibility and product group
+                        article_id = articles[0].get('articleId')
+                        if article_id:
+                            details_url = f"{BASE_URL}/articles/details/{article_id}/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}"
+                            details_response = requests.get(details_url, headers=HEADERS, timeout=5)
+                            
+                            if details_response.status_code == 200:
+                                details = details_response.json()
+                                
+                                # Check if this article is for the right product group
+                                product_group_id = details.get('productGroupId')
+                                if product_group_id in [100260, 100270]:  # Drivaksler or Mellomaksler
+                                    print(f"✅ Product group match: {product_group_id}")
+                                    
+                                    # Check vehicle compatibility
+                                    vehicles = details.get('vehicles', [])
+                                    for vehicle in vehicles:
+                                        vehicle_brand = vehicle.get('manufacturerName', '').upper()
+                                        vehicle_model = vehicle.get('modelName', '').upper()
+                                        vehicle_year = vehicle.get('yearFrom', 0)
+                                        
+                                        # Match brand, model and year range
+                                        if (brand.upper() in vehicle_brand and 
+                                            model.upper() in vehicle_model and
+                                            vehicle_year <= year <= vehicle.get('yearTo', 9999)):
+                                            
+                                            print(f"🎯 COMPATIBLE: OEM {oem} matches {brand} {model} {year}")
+                                            compatible_oems.append(oem)
+                                            break
+                                else:
+                                    print(f"⚠️ Wrong product group: {product_group_id} (need 100260/100270)")
+                            else:
+                                print(f"   ❌ Article details failed: {details_response.status_code}")
+                    else:
+                        print(f"   ⚠️ No articles found for OEM {oem}")
+                else:
+                    print(f"   ❌ OEM search failed: {response.status_code}")
+                    
+            except Exception as e:
+                print(f"   ❌ Error testing OEM {oem}: {e}")
+                continue
+        
+        print(f"✅ COMPATIBLE OEMs found: {len(compatible_oems)}")
+        print(f"🎯 Compatible OEMs: {compatible_oems}")
+        
+        return compatible_oems
+        
+    except Exception as e:
+        print(f"❌ Error in OEM compatibility check: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 def search_oem_number(oem_number: str) -> List[Dict]:
     """
