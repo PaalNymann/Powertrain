@@ -883,6 +883,33 @@ def inspect_database():
         traceback.print_exc()
         return jsonify({'error': 'Failed to inspect database', 'details': str(e)}), 500
 
+@app.route('/api/clear_cache', methods=['GET'])
+def clear_cache():
+    """Clear all caches to force fresh searches"""
+    try:
+        from optimized_search import clear_tecdoc_cache
+        clear_tecdoc_cache()
+        
+        # Also try to clear compatibility matrix cache if available
+        try:
+            from compatibility_matrix import clear_all_cache
+            clear_all_cache()
+            cache_cleared = "TecDoc + Compatibility Matrix cache cleared"
+        except ImportError:
+            cache_cleared = "TecDoc cache cleared (compatibility matrix not available)"
+        
+        return jsonify({
+            'status': 'success',
+            'message': cache_cleared,
+            'timestamp': time.time()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Cache clearing failed: {str(e)}',
+            'timestamp': time.time()
+        })
+
 @app.route('/api/debug/oem_matching/<license_plate>', methods=['GET'])
 def debug_oem_matching(license_plate):
     """
