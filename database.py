@@ -101,11 +101,41 @@ def search_products_by_oem(oem_number, include_number=False):
                 (ProductMetafield.key == 'number') & (ProductMetafield.value.contains(pattern))
             ])
         
+        # DEBUG: Print search patterns and conditions
+        print(f"🔍 DEBUG OEM Search for: {oem_number}")
+        print(f"🔍 Search patterns: {search_patterns}")
+        print(f"🔍 Number of search conditions: {len(search_conditions)}")
+        
         metafields_query = session.query(ProductMetafield).filter(
             or_(*search_conditions)
         ).filter(
             ProductMetafield.value != 'N/A'
         )
+        
+        # DEBUG: Print actual SQL query
+        print(f"🔍 SQL Query: {str(metafields_query)}")
+        
+        # DEBUG: Also try a simple test query to see what's actually in the database
+        test_query = session.query(ProductMetafield).filter(
+            ProductMetafield.key == 'original_nummer'
+        ).limit(5)
+        test_results = test_query.all()
+        print(f"🔍 Sample original_nummer entries in database:")
+        for result in test_results:
+            print(f"   Product {result.product_id}: {result.value}")
+        
+        # DEBUG: Try searching for the exact OEM patterns we know exist
+        known_patterns = ['37000', '8H310', '370008H310', '37000-8H310']
+        for known_pattern in known_patterns:
+            test_match = session.query(ProductMetafield).filter(
+                (ProductMetafield.key == 'original_nummer') & 
+                (ProductMetafield.value.contains(known_pattern))
+            ).first()
+            if test_match:
+                print(f"🎯 FOUND MATCH for pattern '{known_pattern}': Product {test_match.product_id} = {test_match.value}")
+            else:
+                print(f"❌ NO MATCH for pattern '{known_pattern}'")
+        
         
         # Get matching product IDs from metafields
         product_ids = set()
