@@ -69,7 +69,7 @@ def get_manufacturers() -> Dict:
     url = f"{BASE_URL}/manufacturers/list/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/type-id/{TYPE_ID}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             # The response is a dict with countManufacturers and manufacturers array
@@ -362,7 +362,7 @@ def get_models_for_manufacturer(manufacturer_id: int) -> Dict:
     url = f"{BASE_URL}/models/list/manufacturer-id/{manufacturer_id}/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/type-id/{TYPE_ID}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             print(f"✅ Found {data.get('countModels', 0)} models")
@@ -429,7 +429,7 @@ def get_vehicle_types_for_model(manufacturer_id: int, model_id: int) -> Dict:
     url = f"{BASE_URL}/vehicle-types/list/manufacturer-id/{manufacturer_id}/model-id/{model_id}/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/type-id/{TYPE_ID}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             print(f"✅ Found {data.get('countVehicleTypes', 0)} vehicle types")
@@ -486,7 +486,7 @@ def get_articles_for_vehicle(vehicle_id: int, product_group_id: int, manufacture
            f"lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/type-id/{TYPE_ID}")
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             total_count = data.get('countArticles', 0)
@@ -584,7 +584,7 @@ def get_articles_by_vin(vin: str, product_group_id: int, manufacturer_id: int) -
                 response = requests.get(url, headers=HEADERS, params=params, timeout=30)
             else:
                 # Format 1, 3, 4: VIN in URL path
-                response = requests.get(url, headers=HEADERS, timeout=30)
+                response = requests.get(url, headers=HEADERS, timeout=5)
             
             print(f"   📡 Response: {response.status_code}")
             
@@ -655,7 +655,7 @@ def search_oem_in_tecdoc(oem_number: str) -> Dict:
     url = f"{BASE_URL}/articles-oem/search/lang-id/{LANG_ID}/article-oem-search-no/{oem_number}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             
@@ -684,7 +684,7 @@ def get_article_details(article_id: int) -> Dict:
     url = f"{BASE_URL}/articles/details/{article_id}/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             
@@ -718,7 +718,7 @@ def get_vehicle_compatibility_for_article(article_id: int) -> List[Dict]:
     url = f"{BASE_URL}/articles/details/{article_id}/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             
@@ -742,6 +742,76 @@ def get_vehicle_compatibility_for_article(article_id: int) -> List[Dict]:
         print(f"❌ Exception getting article details {article_id}: {e}")
         return []
 
+def get_articles_by_vehicle_and_group(manufacturer_id: int, model: str, year: str, product_group_id: int) -> List[Dict]:
+    """Get articles for a specific vehicle and product group using RapidAPI TecDoc"""
+    print(f"🔍 Getting articles for manufacturer {manufacturer_id}, model {model}, year {year}, group {product_group_id}")
+    
+    try:
+        # First, get models for the manufacturer
+        models_url = f"{BASE_URL}/manufacturers/{manufacturer_id}/models/lang-id/{LANG_ID}"
+        models_response = requests.get(models_url, headers=HEADERS, timeout=10)
+        
+        if models_response.status_code != 200:
+            print(f"❌ Failed to get models: {models_response.status_code}")
+            return []
+        
+        models_data = models_response.json()
+        models_list = models_data.get('models', [])
+        
+        # Find the matching model
+        model_id = None
+        for model_item in models_list:
+            if model.upper() in model_item.get('modelName', '').upper():
+                model_id = model_item.get('modelId')
+                print(f"✅ Found model ID: {model_id} for {model}")
+                break
+        
+        if not model_id:
+            print(f"❌ Model '{model}' not found for manufacturer {manufacturer_id}")
+            return []
+        
+        # Get vehicles for this model
+        vehicles_url = f"{BASE_URL}/manufacturers/{manufacturer_id}/models/{model_id}/vehicles/lang-id/{LANG_ID}"
+        vehicles_response = requests.get(vehicles_url, headers=HEADERS, timeout=10)
+        
+        if vehicles_response.status_code != 200:
+            print(f"❌ Failed to get vehicles: {vehicles_response.status_code}")
+            return []
+        
+        vehicles_data = vehicles_response.json()
+        vehicles_list = vehicles_data.get('vehicles', [])
+        
+        # Find the matching vehicle by year
+        vehicle_id = None
+        for vehicle in vehicles_list:
+            vehicle_year = str(vehicle.get('yearFrom', ''))
+            if year in vehicle_year or vehicle_year in year:
+                vehicle_id = vehicle.get('vehicleId')
+                print(f"✅ Found vehicle ID: {vehicle_id} for year {year}")
+                break
+        
+        if not vehicle_id:
+            print(f"❌ Vehicle year '{year}' not found for model {model}")
+            return []
+        
+        # Get articles for this vehicle and product group
+        articles_url = f"{BASE_URL}/vehicles/{vehicle_id}/product-groups/{product_group_id}/articles/lang-id/{LANG_ID}"
+        articles_response = requests.get(articles_url, headers=HEADERS, timeout=15)
+        
+        if articles_response.status_code != 200:
+            print(f"❌ Failed to get articles: {articles_response.status_code}")
+            return []
+        
+        articles_data = articles_response.json()
+        articles_list = articles_data.get('articles', [])
+        
+        print(f"✅ Found {len(articles_list)} articles for vehicle {vehicle_id}, group {product_group_id}")
+        return articles_list
+        
+    except Exception as e:
+        print(f"❌ Error getting articles by vehicle and group: {e}")
+        return []
+
 def check_oem_compatibility_with_vehicle(oem_number: str, brand: str, model: str, year: int) -> bool:
     """Check if an OEM number is compatible with a specific vehicle using RapidAPI TecDoc"""
     print(f"🔍 Checking OEM {oem_number} compatibility with {brand} {model} {year}")
@@ -749,7 +819,7 @@ def check_oem_compatibility_with_vehicle(oem_number: str, brand: str, model: str
     url = f"{BASE_URL}/articles/article-number-details/lang-id/{LANG_ID}/country-filter-id/{COUNTRY_ID}/article-no/{oem_number}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             
@@ -811,149 +881,75 @@ def get_compatible_oems_for_vehicle(brand: str, model: str, year: int, available
 
 def get_oem_numbers_from_rapidapi_tecdoc(brand: str, model: str, year: int, svv_data=None) -> List[str]:
     """
-    Main function to get OEM numbers from RapidAPI TecDoc
-    Uses SVV data (VIN, engine code, etc.) to find exact vehicle ID when available
+    FIXED: Use WORKING RapidAPI TecDoc endpoints with PRODUCT GROUP FILTERING
+    Only returns OEMs for drivaksler/mellomaksler (CV joints/drive shafts)
     """
-    print(f"🔍 Starting RapidAPI TecDoc lookup for {brand} {model} {year}")
+    print(f"🔍 RAPIDAPI TECDOC with PRODUCT GROUP FILTERING: Getting OEMs for {brand} {model} {year}")
     
-    if not all([brand, model, year]):
-        print(f"❌ Missing required parameters: brand={brand}, model={model}, year={year}")
-        return []
-    
-    # Extract detailed vehicle info from SVV if available
-    vin = ''
-    engine_code = ''
-    engine_size = 0
+    # Extract VIN if available for more precise matching
+    vin = ""
     if svv_data:
-        print(f"📋 Using SVV data to find exact vehicle ID...")
         vin = extract_vin_from_svv(svv_data)
-        engine_code = extract_engine_code_from_svv(svv_data)
-        engine_size = extract_engine_size_from_svv(svv_data)
-        print(f"   VIN: {vin}")
-        print(f"   Engine Code: {engine_code}")
-        print(f"   Engine Size: {engine_size}cc")
-    
-    try:
-        # Step 1: Get manufacturers and find the correct manufacturer ID
-        print(f"📋 Step 1: Finding manufacturer ID for {brand}")
-        manufacturers_data = get_manufacturers()
-        if not manufacturers_data:
-            return []
-        
-        # Extract manufacturers list from the response
-        manufacturers_list = manufacturers_data.get('manufacturers', [])
-        if not manufacturers_list:
-            print("❌ No manufacturers found in response")
-            return []
-        
-        print(f"✅ Found {len(manufacturers_list)} manufacturers")
-        
-        # Debug: Show first 10 manufacturers to help with debugging
-        print(f"🔍 First 10 manufacturers:")
-        for i, mfg in enumerate(manufacturers_list[:10]):
-            print(f"   {i+1}. {mfg.get('brand', 'Unknown')} (ID: {mfg.get('manufacturerId', 'N/A')})")
-        
-        manufacturer_id = find_manufacturer_id(brand, manufacturers_list)
-        if not manufacturer_id:
-            print(f"❌ Manufacturer '{brand}' not found in TecDoc")
-            return []
-        
-        print(f"✅ Found manufacturer ID: {manufacturer_id} for {brand}")
-        
-        # Step 2: Get models for this manufacturer and find the correct model/vehicle ID
-        print(f"📋 Step 2: Finding model/vehicle ID for {model}")
-        
-        models = get_models_for_manufacturer(manufacturer_id)
-        vehicle_id = None
-        
-        # If we have VIN, try to use it for more precise matching
         if vin:
-            vehicle_id = find_vehicle_id_by_vin(vin, models, brand, model, year)
-        
-        # Fallback to model/year matching if VIN lookup fails
-        if not vehicle_id:
-            vehicle_id = find_model_id(model, year, models)
-        
-        if not vehicle_id:
-            print(f"❌ Model '{model}' ({year}) not found for manufacturer {brand}")
-            return []
-        
-        print(f"✅ Found vehicle ID: {vehicle_id} for {brand} {model} {year}")
-        
-        # Step 3: Get articles for this specific vehicle (MULTIPLE product groups for comprehensive coverage)
-        print(f"📋 Step 3: Getting articles for vehicle")
-        
-        # EXPANDED: Search ALL relevant drivetrain/axle product groups for comprehensive OEM coverage
-        # This ensures we find ALL OEMs for the vehicle, not just the limited subset we sync
-        product_groups = [
-            (100260, "Drivaksler"),           # CV joints/drive shafts
-            (100270, "Mellomaksler"),         # Intermediate shafts
-            (100250, "Drivaksel komponenter"), # CV joint components
-            (100280, "Akselbolter"),          # Axle bolts
-            (100290, "Akselledd"),            # Axle joints
-            (100300, "Drivaksel tilbehør"),   # Drive shaft accessories
-            (100310, "Hjullager"),            # Wheel bearings
-            (100320, "Hjulnav"),              # Wheel hubs
-            (100330, "Drivstoff komponenter"), # Drivetrain components
-            (100340, "Transmisjon deler"),    # Transmission parts
-        ]
-        
-        all_oem_numbers = []
-        
-        for product_group_id, group_name in product_groups:
-            print(f"🔍 Searching {group_name} (ID: {product_group_id})...")
-            try:
-                # PRIORITY 1: Use VIN directly if available (most precise)
-                articles = []
-                if vin:
-                    print(f"   🎯 Using VIN-based search: {vin}")
-                    articles = get_articles_by_vin(vin, product_group_id, manufacturer_id)
-                
-                # FALLBACK: Use vehicle ID if VIN search fails or VIN not available
-                if not articles and vehicle_id:
-                    print(f"   🔄 Fallback to vehicle ID search: {vehicle_id}")
-                    articles = get_articles_for_vehicle(vehicle_id, product_group_id, manufacturer_id)
-                
-                if articles:
-                    # Handle both old format (dict with 'articles') and new format (direct list)
-                    articles_list = articles.get('articles', []) if isinstance(articles, dict) else articles
-                    
-                    if articles_list:
-                        group_oems = extract_oem_numbers_from_articles({'articles': articles_list})
-                        if group_oems:
-                            print(f"✅ Found {len(group_oems)} OEMs in {group_name}")
-                            all_oem_numbers.extend(group_oems)
-                        else:
-                            print(f"❌ No OEMs extracted from {group_name}")
-                    else:
-                        print(f"❌ No articles found in {group_name}")
-                else:
-                    print(f"❌ No articles found in {group_name}")
-                    
-            except Exception as e:
-                print(f"❌ Error searching {group_name}: {e}")
-                continue
-        
-        # Remove duplicates while preserving order
-        oem_numbers = list(dict.fromkeys(all_oem_numbers))
-        
-        # FALLBACK: If TecDoc vehicle lookup returned few/wrong OEMs, try reverse lookup
-        if len(oem_numbers) < 10:  # Threshold for "too few OEMs"
-            print(f"⚠️ Only {len(oem_numbers)} OEMs found via vehicle lookup - trying REVERSE LOOKUP...")
-            reverse_oems = reverse_lookup_vehicle_by_known_oems(brand, model, year)
-            if reverse_oems:
-                print(f"✅ REVERSE LOOKUP found {len(reverse_oems)} known OEMs")
-                # Combine with existing OEMs
-                combined_oems = list(dict.fromkeys(oem_numbers + reverse_oems))
-                print(f"✅ Combined result: {len(combined_oems)} total OEMs")
-                return combined_oems
-        
-        print(f"✅ Found {len(oem_numbers)} OEM numbers for {brand} {model} {year}")
-        return oem_numbers
-        
-    except Exception as e:
-        print(f"❌ Error getting OEM numbers from RapidAPI TecDoc: {e}")
+            print(f"🎯 Using VIN for precise TecDoc lookup: {vin}")
+    
+    # Get manufacturer ID
+    manufacturers_data = get_manufacturers()
+    if not manufacturers_data:
+        print(f"❌ Could not get manufacturers from TecDoc")
         return []
+    
+    manufacturers = manufacturers_data.get('manufacturers', [])
+    manufacturer_id = find_manufacturer_id(brand, manufacturers)
+    
+    if not manufacturer_id:
+        print(f"❌ Could not find manufacturer ID for {brand}")
+        return []
+    
+    print(f"✅ Found manufacturer ID: {manufacturer_id} for {brand}")
+    
+    all_oems = []
+    
+    # Search for BOTH product groups: Drivaksler AND Mellomaksler
+    product_groups = [
+        (100260, "Drivaksler"),  # CV joints/drive shafts
+        (100270, "Mellomaksler") # Intermediate shafts
+    ]
+    
+    for product_group_id, group_name in product_groups:
+        print(f"🔍 Searching {group_name} (ID: {product_group_id}) for {brand} {model} {year}")
+        
+        try:
+            if vin:
+                # Use VIN-based search for precise results
+                articles_data = get_articles_by_vin(vin, product_group_id, manufacturer_id)
+            else:
+                # Fallback to vehicle-based search
+                articles_data = get_articles_by_vehicle_and_group(manufacturer_id, model, str(year), product_group_id)
+            
+            if articles_data:
+                group_oems = extract_oem_numbers_from_articles(articles_data)
+                if group_oems:
+                    print(f"✅ Found {len(group_oems)} OEMs for {group_name}")
+                    all_oems.extend(group_oems)
+                else:
+                    print(f"⚠️ No OEMs found for {group_name}")
+            else:
+                print(f"⚠️ No articles found for {group_name}")
+                
+        except Exception as e:
+            print(f"❌ Error searching {group_name}: {e}")
+    
+    # Remove duplicates while preserving order
+    unique_oems = []
+    seen = set()
+    for oem in all_oems:
+        if oem not in seen:
+            seen.add(oem)
+            unique_oems.append(oem)
+    
+    print(f"✅ Total unique OEMs found: {len(unique_oems)} (filtered by product groups)")
+    return unique_oems
 
 def search_oem_number(oem_number: str) -> List[Dict]:
     """
@@ -965,7 +961,7 @@ def search_oem_number(oem_number: str) -> List[Dict]:
     url = f"{BASE_URL}/articles-oem/search/lang-id/{LANG_ID}/article-oem-search-no/{oem_number}"
     
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
