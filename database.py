@@ -80,13 +80,29 @@ def search_products_by_oem(oem_number, include_number=False):
     session = SessionLocal()
     try:
         # Search in product_metafields for OEM numbers
-        # FIXED: Use correct case for original_nummer (lowercase)
+        # FIXED: Handle comma-separated OEMs and different formats (with/without hyphens)
+        
+        # Normalize OEM for searching (remove hyphens, spaces, make uppercase)
+        oem_normalized = oem_number.replace('-', '').replace(' ', '').upper()
+        
+        # Also try with original format
+        search_patterns = [
+            oem_number,           # Original format (e.g. 37000-8H310)
+            oem_normalized,       # Normalized format (e.g. 370008H310)
+            oem_number.replace('-', ''),  # Without hyphens (e.g. 370008H310)
+        ]
+        
+        # Build OR conditions for all patterns
+        search_conditions = []
+        for pattern in search_patterns:
+            search_conditions.extend([
+                (ProductMetafield.key == 'original_nummer') & (ProductMetafield.value.contains(pattern)),
+                (ProductMetafield.key == 'Original_nummer') & (ProductMetafield.value.contains(pattern)),
+                (ProductMetafield.key == 'number') & (ProductMetafield.value.contains(pattern))
+            ])
+        
         metafields_query = session.query(ProductMetafield).filter(
-            or_(
-                (ProductMetafield.key == 'original_nummer') & (ProductMetafield.value.contains(oem_number)),
-                (ProductMetafield.key == 'Original_nummer') & (ProductMetafield.value.contains(oem_number)),
-                (ProductMetafield.key == 'number') & (ProductMetafield.value.contains(oem_number))
-            )
+            or_(*search_conditions)
         ).filter(
             ProductMetafield.value != 'N/A'
         )
