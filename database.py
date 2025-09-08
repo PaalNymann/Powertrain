@@ -79,62 +79,45 @@ def search_products_by_oem(oem_number, include_number=False):
     """Search for products by OEM number in product_metafields and match with shopify_products"""
     session = SessionLocal()
     try:
-        # Search in product_metafields for OEM numbers
-        # FIXED: Handle comma-separated OEMs and different formats (with/without hyphens)
+        # Search in product_metafields for OEM numbers - SIMPLIFIED AND FIXED
+        # User confirmed OEMs ARE in database, search logic was wrong
         
-        # Normalize OEM for searching (remove hyphens, spaces, make uppercase)
-        oem_normalized = oem_number.replace('-', '').replace(' ', '').upper()
+        print(f"🔍 Searching for OEM: {oem_number}")
         
-        # Also try with original format
-        search_patterns = [
-            oem_number,           # Original format (e.g. 37000-8H310)
-            oem_normalized,       # Normalized format (e.g. 370008H310)
-            oem_number.replace('-', ''),  # Without hyphens (e.g. 370008H310)
-        ]
-        
-        # Build OR conditions for all patterns
-        search_conditions = []
-        for pattern in search_patterns:
-            search_conditions.extend([
-                (ProductMetafield.key == 'original_nummer') & (ProductMetafield.value.contains(pattern)),
-                (ProductMetafield.key == 'Original_nummer') & (ProductMetafield.value.contains(pattern)),
-                (ProductMetafield.key == 'number') & (ProductMetafield.value.contains(pattern))
-            ])
-        
-        # DEBUG: Print search patterns and conditions
-        print(f"🔍 DEBUG OEM Search for: {oem_number}")
-        print(f"🔍 Search patterns: {search_patterns}")
-        print(f"🔍 Number of search conditions: {len(search_conditions)}")
-        
+        # Simple search in original_nummer field (case-insensitive)
         metafields_query = session.query(ProductMetafield).filter(
-            or_(*search_conditions)
+            ProductMetafield.key == 'original_nummer'
+        ).filter(
+            ProductMetafield.value.ilike(f'%{oem_number}%')
         ).filter(
             ProductMetafield.value != 'N/A'
         )
         
-        # DEBUG: Print actual SQL query
         print(f"🔍 SQL Query: {str(metafields_query)}")
         
-        # DEBUG: Also try a simple test query to see what's actually in the database
-        test_query = session.query(ProductMetafield).filter(
-            ProductMetafield.key == 'original_nummer'
-        ).limit(5)
-        test_results = test_query.all()
-        print(f"🔍 Sample original_nummer entries in database:")
-        for result in test_results:
+        # Get results
+        metafield_results = metafields_query.all()
+        print(f"🔍 Found {len(metafield_results)} metafield matches")
+        
+        # Show what we found
+        for result in metafield_results[:3]:
             print(f"   Product {result.product_id}: {result.value}")
         
-        # DEBUG: Try searching for the exact OEM patterns we know exist
-        known_patterns = ['37000', '8H310', '370008H310', '37000-8H310']
-        for known_pattern in known_patterns:
-            test_match = session.query(ProductMetafield).filter(
-                (ProductMetafield.key == 'original_nummer') & 
-                (ProductMetafield.value.contains(known_pattern))
-            ).first()
-            if test_match:
-                print(f"🎯 FOUND MATCH for pattern '{known_pattern}': Product {test_match.product_id} = {test_match.value}")
-            else:
-                print(f"❌ NO MATCH for pattern '{known_pattern}'")
+        # If no matches with original format, try without hyphens
+        if not metafield_results and '-' in oem_number:
+            oem_no_hyphen = oem_number.replace('-', '')
+            print(f"🔍 Trying without hyphen: {oem_no_hyphen}")
+            
+            metafields_query = session.query(ProductMetafield).filter(
+                ProductMetafield.key == 'original_nummer'
+            ).filter(
+                ProductMetafield.value.ilike(f'%{oem_no_hyphen}%')
+            ).filter(
+                ProductMetafield.value != 'N/A'
+            )
+            
+            metafield_results = metafields_query.all()
+            print(f"🔍 Found {len(metafield_results)} matches without hyphen")
         
         
         # Get matching product IDs from metafields
@@ -167,7 +150,7 @@ def search_products_by_oem(oem_number, include_number=False):
         
         if products:
             print(f"✅ Returning {len(products)} complete products")
-            return [product_to_dict(product) for product in products]
+            return products  # Return product objects directly, not dicts
         else:
             print(f"🔍 No complete products found for OEM: {oem_number}")
             return []
