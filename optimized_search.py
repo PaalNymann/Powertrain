@@ -180,7 +180,7 @@ def get_available_oems_optimized():
                 ProductMetafield.value.in_(['Drivaksel', 'Mellomaksel'])
             )
         ).filter(
-            ProductMetafield.key == 'Original_nummer',
+            ProductMetafield.key == 'original_nummer',
             ProductMetafield.value.isnot(None),
             ProductMetafield.value != '',
             ProductMetafield.value != 'N/A'
@@ -194,7 +194,7 @@ def get_available_oems_optimized():
                 ON pm_oem.product_id = pm_group.product_id
             WHERE pm_group.key = 'product_group' 
                 AND pm_group.value IN ('Drivaksel', 'Mellomaksel')
-                AND pm_oem.key = 'Original_nummer'
+                AND pm_oem.key = 'original_nummer'
                 AND pm_oem.value IS NOT NULL 
                 AND pm_oem.value != ''
                 AND pm_oem.value != 'N/A'
@@ -412,13 +412,13 @@ def search_products_by_oem_optimized(oem_number):
         print(f"🔍 DEBUG: Searching for OEM: {oem_number}")
         
         # First, check if ANY metafields exist at all
-        count_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'Original_nummer'")
+        count_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'original_nummer'")
         count_result = session.execute(count_query)
         total_oem_metafields = count_result.scalar()
-        print(f"📊 Total Original_nummer metafields in database: {total_oem_metafields}")
+        print(f"📊 Total original_nummer metafields in database: {total_oem_metafields}")
         
         if total_oem_metafields == 0:
-            print("❌ CRITICAL: No Original_nummer metafields found in database!")
+            print("❌ CRITICAL: No original_nummer metafields found in database!")
             print("   This explains why no products are matched - metafields are missing!")
             return []
         
@@ -428,26 +428,47 @@ def search_products_by_oem_optimized(oem_number):
         existing_keys = [row[0] for row in keys_result.fetchall()]
         print(f"📋 Existing metafield keys: {existing_keys}")
         
-        # Check a few sample Original_nummer values to see format
-        sample_query = text("SELECT value FROM product_metafields WHERE key = 'Original_nummer' AND value IS NOT NULL LIMIT 10")
+        # Check a few sample original_nummer values to see format
+        sample_query = text("SELECT value FROM product_metafields WHERE key = 'original_nummer' AND value IS NOT NULL LIMIT 10")
         sample_result = session.execute(sample_query)
         sample_oems = [row[0] for row in sample_result.fetchall()]
         print(f"🔍 Sample OEM values in database: {sample_oems}")
         
         # Now try the actual search with COMPREHENSIVE variations
+        def normalize_oem(oem):
+            """Comprehensive OEM normalization for maximum matching"""
+            if not oem:
+                return ""
+            # Remove all non-alphanumeric characters and convert to uppercase
+            normalized = ''.join(c.upper() for c in oem if c.isalnum())
+            return normalized
+        
+        # Create comprehensive OEM variations including normalized versions
         oem_variations = [
-            oem_number,                                    # Original: "1234 567 890"
-            oem_number.upper(),                           # Upper: "1234 567 890"
-            oem_number.lower(),                           # Lower: "1234 567 890"
-            ''.join(oem_number.split()),                  # No spaces: "1234567890"
-            ''.join(oem_number.split()).upper(),          # No spaces upper: "1234567890"
-            ''.join(oem_number.split()).lower(),          # No spaces lower: "1234567890"
-            oem_number.replace('-', ''),                  # No dashes: "1234 567 890"
-            oem_number.replace('-', '').replace(' ', ''), # No dashes/spaces: "1234567890"
-            oem_number.replace('A', '').replace('a', ''), # Remove A prefix: "234 567 890"
-            oem_number.replace(' ', '-'),                 # Spaces to dashes: "1234-567-890"
-            oem_number.replace('-', ' '),                 # Dashes to spaces: "1234 567 890"
+            oem_number,                                    # Original: "37000-8H310"
+            oem_number.upper(),                           # Upper: "37000-8H310"
+            oem_number.lower(),                           # Lower: "37000-8h310"
+            ''.join(oem_number.split()),                  # No spaces: "37000-8H310"
+            ''.join(oem_number.split()).upper(),          # No spaces upper: "37000-8H310"
+            ''.join(oem_number.split()).lower(),          # No spaces lower: "37000-8h310"
+            oem_number.replace('-', ''),                  # No dashes: "370008H310"
+            oem_number.replace('-', '').replace(' ', ''), # No dashes/spaces: "370008H310"
+            oem_number.replace('A', '').replace('a', ''), # Remove A prefix
+            oem_number.replace(' ', '-'),                 # Spaces to dashes
+            oem_number.replace('-', ' '),                 # Dashes to spaces
+            normalize_oem(oem_number),                    # Fully normalized: "370008H310"
         ]
+        
+        # Add reverse variations (dash where no dash, no dash where dash)
+        if '-' in oem_number:
+            # If input has dash, try without dash
+            no_dash = oem_number.replace('-', '')
+            oem_variations.extend([no_dash, no_dash.upper(), no_dash.lower()])
+        else:
+            # If input has no dash, try with dash at common positions
+            if len(oem_number) >= 6:
+                with_dash = oem_number[:5] + '-' + oem_number[5:]
+                oem_variations.extend([with_dash, with_dash.upper(), with_dash.lower()])
         
         # Remove duplicates while preserving order
         seen = set()
@@ -465,7 +486,7 @@ def search_products_by_oem_optimized(oem_number):
             # Search for OEM within comma-separated lists using LIKE pattern
             comma_query = text("""
                 SELECT COUNT(*) FROM product_metafields 
-                WHERE key = 'Original_nummer' 
+                WHERE key = 'original_nummer' 
                 AND (
                     value LIKE :oem_start OR 
                     value LIKE :oem_middle OR 
@@ -490,7 +511,7 @@ def search_products_by_oem_optimized(oem_number):
                            sp.inventory_quantity, sp.created_at, sp.updated_at, pm.value 
                     FROM shopify_products sp
                     INNER JOIN product_metafields pm ON sp.id = pm.product_id
-                    WHERE pm.key = 'Original_nummer' 
+                    WHERE pm.key = 'original_nummer' 
                     AND (
                         pm.value LIKE :oem_start OR 
                         pm.value LIKE :oem_middle OR 
