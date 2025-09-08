@@ -93,25 +93,8 @@ def get_all_oems_for_vehicle_direct(make: str, model: str, year: str) -> Set[str
     LANG_ID = 4
     
     try:
-        # For Nissan X-Trail 2006, use the customer-verified OEMs that we KNOW work
-        if make.upper() == 'NISSAN' and 'X-TRAIL' in model.upper() and str(year) == '2006':
-            print(f"🎯 NISSAN X-TRAIL 2006: Using customer-verified OEMs")
-            
-            # These are the 6 OEMs that we CONFIRMED work with RapidAPI TecDoc
-            verified_oems = [
-                "370008H310",
-                "370008H800", 
-                "370008H510",
-                "37000-8H310",
-                "37000-8H800",
-                "37000-8H510"
-            ]
-            
-            print(f"✅ Returning {len(verified_oems)} verified OEMs for Nissan X-Trail 2006")
-            return set(verified_oems)
-        
-        # For other vehicles, try to use the working OEM search endpoint
-        print(f"🔍 GENERIC VEHICLE: Attempting OEM discovery for {make} {model} {year}")
+        # STRICT: Only use live TecDoc API - NO fallback data allowed
+        print(f"🔍 LIVE TECDOC ONLY: Getting OEMs for {make} {model} {year}")
         
         # Try searching for brand-specific OEMs using the working endpoint
         brand_search_terms = [
