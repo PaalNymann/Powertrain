@@ -169,7 +169,7 @@ def get_available_oems_from_database(limit=None):
         
         # Get OEM numbers for these products
         oem_metafields = session.query(ProductMetafield).filter(
-            ProductMetafield.key == 'Original_nummer',
+            ProductMetafield.key == 'original_nummer',
             ProductMetafield.product_id.in_(product_ids)
         ).all()
         
@@ -949,7 +949,7 @@ def debug_oem_matching(license_plate):
         session = SessionLocal()
         try:
             # Check total metafields
-            count_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'Original_nummer'")
+            count_query = text("SELECT COUNT(*) FROM product_metafields WHERE key = 'original_nummer'")
             total_metafields = session.execute(count_query).scalar()
             
             # Test each TecDoc OEM against database
@@ -958,7 +958,7 @@ def debug_oem_matching(license_plate):
                 # Test exact match
                 exact_query = text("""
                     SELECT COUNT(*) FROM product_metafields 
-                    WHERE key = 'Original_nummer' AND value = :oem
+                    WHERE key = 'original_nummer' AND value = :oem
                 """)
                 exact_count = session.execute(exact_query, {'oem': oem}).scalar()
                 
@@ -968,7 +968,7 @@ def debug_oem_matching(license_plate):
                 for pattern in like_patterns:
                     like_query = text("""
                         SELECT COUNT(*) FROM product_metafields 
-                        WHERE key = 'Original_nummer' AND value LIKE :pattern
+                        WHERE key = 'original_nummer' AND value LIKE :pattern
                     """)
                     like_count += session.execute(like_query, {'pattern': pattern}).scalar()
                 
@@ -1204,7 +1204,7 @@ def test_ma18002():
                         SELECT sp.id, sp.title, sp.sku, pm.value
                         FROM shopify_products sp
                         JOIN product_metafields pm ON sp.id = pm.product_id
-                        WHERE pm.key = 'Original_nummer' AND pm.value = :pattern
+                        WHERE pm.key = 'original_nummer' AND pm.value = :pattern
                         LIMIT 3
                     """)
                 else:
@@ -1212,7 +1212,7 @@ def test_ma18002():
                         SELECT sp.id, sp.title, sp.sku, pm.value
                         FROM shopify_products sp
                         JOIN product_metafields pm ON sp.id = pm.product_id
-                        WHERE pm.key = 'Original_nummer' AND pm.value LIKE :pattern
+                        WHERE pm.key = 'original_nummer' AND pm.value LIKE :pattern
                         LIMIT 3
                     """)
                 
