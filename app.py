@@ -74,18 +74,79 @@ def car_parts_search():
         merke_obj = generelt.get('merke') if isinstance(generelt, dict) else None
         if isinstance(merke_obj, dict):
             make = merke_obj.get('merkenavn') or merke_obj.get('navn')
+        elif isinstance(merke_obj, str):
+            make = merke_obj
         if not make and isinstance(vi_raw, dict):
-            make = vi_raw.get('merke')  # last-resort fallback
+            # last-resort fallbacks
+            make = vi_raw.get('merke') or (vi_raw.get('kjoretoyId', {}) if isinstance(vi_raw.get('kjoretoyId'), dict) else {}).get('merke')
+        if not make:
+            # Deep fallback: search nested structures
+            def _find_first_str(obj, keyset):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if k in keyset:
+                            if isinstance(v, str) and v.strip():
+                                return v.strip()
+                            if isinstance(v, dict):
+                                for kk in ('merkenavn','navn','betegnelse','modellnavn','typebetegnelse','handelsbetegnelse'):
+                                    vv = v.get(kk)
+                                    if isinstance(vv, str) and vv.strip():
+                                        return vv.strip()
+                        res = _find_first_str(v, keyset)
+                        if res:
+                            return res
+                elif isinstance(obj, list):
+                    for it in obj:
+                        res = _find_first_str(it, keyset)
+                        if res:
+                            return res
+                return None
+            make = _find_first_str(vi_raw, {'merkenavn','merke','navn','bilmerke'})
 
         # Model
         model = None
         hb = generelt.get('handelsbetegnelse') if isinstance(generelt, dict) else None
         if isinstance(hb, list):
-            model = ', '.join([x for x in hb if isinstance(x, str)]) or None
+            models = []
+            for item in hb:
+                if isinstance(item, str):
+                    if item.strip():
+                        models.append(item.strip())
+                elif isinstance(item, dict):
+                    v = item.get('handelsbetegnelse') or item.get('betegnelse') or item.get('modellnavn') or item.get('navn')
+                    if isinstance(v, str) and v.strip():
+                        models.append(v.strip())
+            model = ', '.join(sorted(set(models))) or None
         elif isinstance(hb, str):
             model = hb
         if not model and isinstance(vi_raw, dict):
+            # additional fallbacks
             model = vi_raw.get('handelsbetegnelse') or vi_raw.get('modell')
+            if not model and isinstance(generelt, dict):
+                model = generelt.get('betegnelse') or generelt.get('modell') or generelt.get('typebetegnelse')
+        if not model:
+            # Deep fallback
+            def _find_first_str(obj, keyset):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if k in keyset:
+                            if isinstance(v, str) and v.strip():
+                                return v.strip()
+                            if isinstance(v, dict):
+                                for kk in ('handelsbetegnelse','betegnelse','modellnavn','typebetegnelse','navn'):
+                                    vv = v.get(kk)
+                                    if isinstance(vv, str) and vv.strip():
+                                        return vv.strip()
+                        res = _find_first_str(v, keyset)
+                        if res:
+                            return res
+                elif isinstance(obj, list):
+                    for it in obj:
+                        res = _find_first_str(it, keyset)
+                        if res:
+                            return res
+                return None
+            model = _find_first_str(vi_raw, {'handelsbetegnelse','betegnelse','modell','modellnavn','typebetegnelse'})
 
         # Year
         year = None
