@@ -34,9 +34,75 @@ class ShopifyProduct(Base):
     inventory_quantity = Column(Integer)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
-    
-    def __repr__(self):
-        return f"<ShopifyProduct(id='{self.id}', title='{self.title}', handle='{self.handle}')>"
+
+def get_cached_oems_for_article(article_id: str) -> List[str]:
+    """Return cached OEMs for a TecDoc article_id, or [] if not cached."""
+    session = SessionLocal()
+    try:
+        row = session.query(TecdocArticleOem).filter(TecdocArticleOem.article_id == str(article_id)).first()
+        if not row or not row.oem_numbers:
+            return []
+        try:
+            data = json.loads(row.oem_numbers)
+            if isinstance(data, list):
+                return [str(x).strip() for x in data if x]
+            return []
+        except Exception:
+            return []
+    finally:
+        session.close()
+
+def upsert_article_oems(
+    article_id: str,
+    product_group_id: int,
+    supplier_id: int,
+    supplier_name: str,
+    article_product_name: str,
+    oem_numbers: List[str],
+):
+    """Insert or update cached OEMs for an articleId."""
+    session = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        payload = json.dumps(sorted({str(x).strip() for x in (oem_numbers or []) if x}))
+        row = session.query(TecdocArticleOem).filter(TecdocArticleOem.article_id == str(article_id)).first()
+        if row:
+            row.product_group_id = product_group_id
+            row.supplier_id = supplier_id
+            row.supplier_name = supplier_name
+            row.article_product_name = article_product_name
+            row.oem_numbers = payload
+            row.updated_at = now
+        else:
+            row = TecdocArticleOem(
+                article_id=str(article_id),
+                product_group_id=product_group_id,
+                supplier_id=supplier_id,
+                supplier_name=supplier_name,
+                article_product_name=article_product_name,
+                oem_numbers=payload,
+                updated_at=now,
+            )
+            session.add(row)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"⚠️ upsert_article_oems failed for {article_id}: {e}")
+    finally:
+        session.close()
+
+# TecDoc article OEM cache for performance (stores OEMs per articleId)
+class TecdocArticleOem(Base):
+    __tablename__ = 'tecdoc_article_oems'
+    # Store article_id as string to be safe across providers
+    article_id = Column(String, primary_key=True)
+    product_group_id = Column(Integer)
+    supplier_id = Column(Integer)
+    supplier_name = Column(String)
+    article_product_name = Column(String)
+    # JSON-encoded list of OEM strings
+    oem_numbers = Column(Text)
+    updated_at = Column(DateTime)
 
 def get_database_url():
     """Get database URL from environment or use SQLite for local development"""

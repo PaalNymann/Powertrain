@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 import os
 import traceback
 from dotenv import load_dotenv
@@ -10,6 +11,9 @@ from svv_client import hent_kjoretoydata
 load_dotenv()
 
 app = Flask(__name__)
+# Allow Shopify storefront to call our API (CORS)
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "https://bm0did-zc.myshopify.com")
+CORS(app, resources={r"/api/*": {"origins": [o.strip() for o in allowed_origins.split(",") if o.strip()]}}, supports_credentials=False)
 
 @app.before_request
 def before_request_func():
@@ -47,7 +51,19 @@ def car_parts_search():
         if not products:
             return jsonify({'error': 'No products found in the database for the retrieved OEM numbers'}), 404
 
-        return jsonify([product_to_dict(p) for p in products])
+        # Build a lightweight vehicle_info structure (best-effort; fields may be empty)
+        vi_raw = vehicle_data['kjoretoydataListe'][0]
+        vehicle_info = {
+            'vin': vin,
+            'make': vi_raw.get('merke') if isinstance(vi_raw, dict) else None,
+            'model': vi_raw.get('handelsbetegnelse') if isinstance(vi_raw, dict) else None,
+            'year': vi_raw.get('forstegangsregistrertDato')[:4] if isinstance(vi_raw, dict) and vi_raw.get('forstegangsregistrertDato') else None,
+        }
+
+        return jsonify({
+            'vehicle_info': vehicle_info,
+            'shopify_parts': [product_to_dict(p) for p in products]
+        })
 
     except Exception as e:
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500

@@ -29,6 +29,7 @@ VIN_DECODER_HEADERS = {
 }
 
 import os
+from database import get_cached_oems_for_article, upsert_article_oems
 # --- TecDoc Constants ---
 LANG_ID = 4
 COUNTRY_ID = 62  # Stick to stable country filter used previously
@@ -120,8 +121,18 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
                         break
                     continue
 
-                # 2) Otherwise call POST /articles/details to fetch OEMs for this articleId
+                # 1b) Cache-first: see if we already have OEMs for this articleId
                 article_id = article.get('articleId')
+                if article_id:
+                    cached = get_cached_oems_for_article(str(article_id))
+                    if cached:
+                        for val in cached:
+                            all_oems.add(val)
+                        if len(all_oems) >= OEM_EARLY_EXIT_LIMIT:
+                            break
+                        continue
+
+                # 2) Otherwise call POST /articles/details to fetch OEMs for this articleId
                 if not article_id:
                     continue
                 try:
@@ -144,13 +155,28 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
                             val = dj.get(alt)
                             if isinstance(val, list):
                                 oem_items.extend(val)
+                    collected = []
                     for it in oem_items:
                         if isinstance(it, dict):
                             val = it.get('oemDisplayNo') or it.get('oemNumber') or it.get('oeNumber') or it.get('articleOemNo')
                         else:
                             val = str(it)
                         if val:
-                            all_oems.add(val.strip())
+                            sval = val.strip()
+                            all_oems.add(sval)
+                            collected.append(sval)
+                    # Upsert into cache for future requests
+                    try:
+                        upsert_article_oems(
+                            article_id=str(article_id),
+                            product_group_id=group_id,
+                            supplier_id=article.get('supplierId') or 0,
+                            supplier_name=article.get('supplierName') or '',
+                            article_product_name=article.get('articleProductName') or '',
+                            oem_numbers=collected,
+                        )
+                    except Exception as ce:
+                        print(f"   -> cache upsert error for {article_id}: {ce}")
                     # Early exit if we collected enough OEMs
                     if len(all_oems) >= OEM_EARLY_EXIT_LIMIT:
                         break
