@@ -64,12 +64,46 @@ def car_parts_search():
             return jsonify({'error': 'No products found in the database for the retrieved OEM numbers'}), 404
 
         # Build a lightweight vehicle_info structure (best-effort; fields may be empty)
-        vi_raw = vehicle_data['kjoretoydataListe'][0]
+        vi_raw = vehicle_data['kjoretoydataListe'][0] if vehicle_data.get('kjoretoydataListe') else {}
+        # Prefer nested tekniskGodkjenning.tekniskeData.generelt; fallback to tekniskeData.generelt
+        tg = (vi_raw.get('tekniskGodkjenning') or {}).get('tekniskeData') or vi_raw.get('tekniskeData') or {}
+        generelt = tg.get('generelt', {}) if isinstance(tg, dict) else {}
+
+        # Make
+        make = None
+        merke_obj = generelt.get('merke') if isinstance(generelt, dict) else None
+        if isinstance(merke_obj, dict):
+            make = merke_obj.get('merkenavn') or merke_obj.get('navn')
+        if not make and isinstance(vi_raw, dict):
+            make = vi_raw.get('merke')  # last-resort fallback
+
+        # Model
+        model = None
+        hb = generelt.get('handelsbetegnelse') if isinstance(generelt, dict) else None
+        if isinstance(hb, list):
+            model = ', '.join([x for x in hb if isinstance(x, str)]) or None
+        elif isinstance(hb, str):
+            model = hb
+        if not model and isinstance(vi_raw, dict):
+            model = vi_raw.get('handelsbetegnelse') or vi_raw.get('modell')
+
+        # Year
+        year = None
+        fr = vi_raw.get('forstegangsregistrering') if isinstance(vi_raw, dict) else None
+        if isinstance(fr, dict):
+            ystr = fr.get('registrertForstegangNorgeDato') or fr.get('registrertForstegangDato')
+            if isinstance(ystr, str) and len(ystr) >= 4:
+                year = ystr[:4]
+        if not year and isinstance(vi_raw, dict):
+            ystr2 = vi_raw.get('forstegangsregistrertDato')
+            if isinstance(ystr2, str) and len(ystr2) >= 4:
+                year = ystr2[:4]
+
         vehicle_info = {
             'vin': vin,
-            'make': vi_raw.get('merke') if isinstance(vi_raw, dict) else None,
-            'model': vi_raw.get('handelsbetegnelse') if isinstance(vi_raw, dict) else None,
-            'year': vi_raw.get('forstegangsregistrertDato')[:4] if isinstance(vi_raw, dict) and vi_raw.get('forstegangsregistrertDato') else None,
+            'make': make,
+            'model': model,
+            'year': year,
         }
 
         return jsonify({
