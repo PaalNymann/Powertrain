@@ -1,10 +1,13 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, or_, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import json
+from typing import List
 
+load_dotenv()
 Base = declarative_base()
 
 class ProductMetafield(Base):
@@ -41,8 +44,8 @@ def get_database_url():
     print(f"🔧 DATABASE_URL from environment: {database_url}")
     
     if database_url and database_url.startswith('postgresql://'):
-        print(f"✅ Using PostgreSQL database")
-        return database_url
+        print(f"✅ Using PostgreSQL database, switching to psycopg driver")
+        return database_url.replace('postgresql://', 'postgresql+psycopg://')
     elif database_url and database_url.startswith('sqlite://'):
         print(f"✅ Using SQLite database")
         return database_url
@@ -163,66 +166,154 @@ def search_products_by_oem(oem_number, include_number=False):
     finally:
         session.close()
 
-def update_shopify_cache(products_data):
-    """Update local database cache with Shopify product data"""
+def search_products_by_oems(oem_numbers: List[str]):
+    """Strict search by a list of OEM numbers against original_nummer metafield only.
+    Returns a list of ShopifyProduct rows. No handle/SKU fallback, per requirement.
+    """
     session = SessionLocal()
     try:
-        print(f"🔄 Updating Shopify cache with {len(products_data)} products...")
-        
-        updated_count = 0
-        created_count = 0
-        
-        for product_data in products_data:
-            try:
-                # Check if product already exists
-                existing_product = session.query(ShopifyProduct).filter(
-                    ShopifyProduct.id == str(product_data.get('id'))
-                ).first()
-                
-                if existing_product:
-                    # Update existing product
-                    existing_product.title = product_data.get('title', '')
-                    existing_product.handle = product_data.get('handle', '')
-                    existing_product.inventory_quantity = product_data.get('inventory_quantity', 0)
-                    
-                    # Update original_nummer metafield if available
-                    if 'metafields' in product_data:
-                        for metafield in product_data['metafields']:
-                            if metafield.get('key') == 'original_nummer':
-                                existing_product.original_nummer_metafield = metafield.get('value', '')
-                                break
-                    
-                    updated_count += 1
-                else:
-                    # Create new product
-                    new_product = ShopifyProduct(
-                        id=str(product_data.get('id')),
-                        title=product_data.get('title', ''),
-                        handle=product_data.get('handle', ''),
-                        inventory_quantity=product_data.get('inventory_quantity', 0),
-                        original_nummer_metafield=''  # Initialize empty
-                    )
-                    
-                    # Set original_nummer metafield if available
-                    if 'metafields' in product_data:
-                        for metafield in product_data['metafields']:
-                            if metafield.get('key') == 'original_nummer':
-                                new_product.original_nummer_metafield = metafield.get('value', '')
-                                break
-                    
-                    session.add(new_product)
-                    created_count += 1
-                    
-            except Exception as e:
-                print(f"❌ Error processing product {product_data.get('id', 'unknown')}: {e}")
+        if not oem_numbers:
+            return []
+
+        # Build OR conditions for ilike against each OEM and a hyphenless variant
+        ilike_conditions = []
+        for oem in oem_numbers:
+            if not oem:
                 continue
+            oem_str = str(oem).strip()
+            if not oem_str:
+                continue
+            ilike_conditions.append(ProductMetafield.value.ilike(f"%{oem_str}%"))
+            if '-' in oem_str:
+                ilike_conditions.append(ProductMetafield.value.ilike(f"%{oem_str.replace('-', '')}%"))
+
+        if not ilike_conditions:
+            return []
+
+        print(f"🔍 OEM list size for DB search: {len(oem_numbers)} (unique ilike conditions: {len(ilike_conditions)})")
+
+        product_ids_subq = (
+            session.query(ProductMetafield.product_id)
+            .filter(ProductMetafield.key == 'original_nummer')
+            .filter(or_(*ilike_conditions))
+            .distinct()
+            .subquery()
+        )
+
+        products = (
+            session.query(ShopifyProduct)
+            .filter(ShopifyProduct.id.in_(product_ids_subq))
+            .all()
+        )
+
+        print(f"✅ Strict OEM search matched {len(products)} products")
+        return products
+    except Exception as e:
+        print(f"❌ Error in search_products_by_oems: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    finally:
+        session.close()
+
+def search_products_by_number(number: str):
+    """Direct search for customer's own part number (Number field) in metafields.
+    No external calls; returns ShopifyProduct rows.
+    """
+    session = SessionLocal()
+    try:
+        if not number:
+            return []
+
+        print(f"🔎 Searching by customer Number: {number}")
+
+        number_ids_subq = (
+            session.query(ProductMetafield.product_id)
+            .filter(func.lower(ProductMetafield.key) == 'number')
+            .filter(ProductMetafield.value.ilike(f"%{number}%"))
+            .distinct()
+            .subquery()
+        )
+
+        products = (
+            session.query(ShopifyProduct)
+            .filter(ShopifyProduct.id.in_(number_ids_subq))
+            .all()
+        )
+
+        print(f"✅ Number search matched {len(products)} products")
+        return products
+    except Exception as e:
+        print(f"❌ Error in search_products_by_number: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    finally:
+        session.close()
+
+def update_shopify_cache(products_data):
+    """Update local database cache with Shopify product data, correctly handling metafields."""
+    session = SessionLocal()
+    products_updated = 0
+    products_created = 0
+    metafields_updated = 0
+    metafields_created = 0
+
+    try:
+        for product_data in products_data:
+            product_id_str = str(product_data['id'])
+
+            # Part 1: Update or Create ShopifyProduct
+            existing_product = session.query(ShopifyProduct).filter_by(id=product_id_str).first()
+            product_fields = {
+                'title': product_data.get('title'),
+                'handle': product_data.get('handle'),
+                'sku': product_data.get('variants')[0].get('sku') if product_data.get('variants') else '',
+                'price': product_data.get('variants')[0].get('price') if product_data.get('variants') else '0',
+                'inventory_quantity': product_data.get('variants')[0].get('inventory_quantity') if product_data.get('variants') else 0,
+                'created_at': datetime.fromisoformat(product_data['created_at'].replace('Z', '+00:00')) if product_data.get('created_at') else None,
+                'updated_at': datetime.fromisoformat(product_data['updated_at'].replace('Z', '+00:00')) if product_data.get('updated_at') else None,
+            }
+            if existing_product:
+                for key, value in product_fields.items():
+                    setattr(existing_product, key, value)
+                products_updated += 1
+            else:
+                new_product = ShopifyProduct(id=product_id_str, **product_fields)
+                session.add(new_product)
+                products_created += 1
+
+            # Part 2: Update or Create ProductMetafields
+            if 'metafields' in product_data:
+                for mf_data in product_data['metafields']:
+                    metafield_id_str = str(mf_data['id'])
+                    existing_metafield = session.query(ProductMetafield).filter_by(id=metafield_id_str).first()
+                    metafield_fields = {
+                        'product_id': product_id_str,
+                        'namespace': mf_data.get('namespace'),
+                        'key': mf_data.get('key'),
+                        'value': str(mf_data.get('value')),
+                        'created_at': datetime.fromisoformat(mf_data['created_at'].replace('Z', '+00:00')) if mf_data.get('created_at') else None,
+                    }
+                    if existing_metafield:
+                        for key, value in metafield_fields.items():
+                            setattr(existing_metafield, key, value)
+                        metafields_updated += 1
+                    else:
+                        new_metafield = ProductMetafield(id=metafield_id_str, **metafield_fields)
+                        session.add(new_metafield)
+                        metafields_created += 1
         
         session.commit()
-        print(f"✅ Cache update complete: {updated_count} updated, {created_count} created")
-        
+        print(f"✅ Cache update complete.")
+        print(f"   Products: {products_created} created, {products_updated} updated.")
+        print(f"   Metafields: {metafields_created} created, {metafields_updated} updated.")
+
     except Exception as e:
-        print(f"❌ Error updating Shopify cache: {e}")
         session.rollback()
+        print(f"❌ Database cache update failed: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         session.close()
 
@@ -357,6 +448,78 @@ def get_all_unique_oem_numbers():
     except Exception as e:
         print(f"❌ Database OEM extraction failed: {e}")
         return []
+
+def get_all_oems_from_db(categories: list) -> list:
+    """Gets all unique OEM numbers from the database for products in specific categories."""
+    session = SessionLocal()
+    try:
+        # Find product IDs for the given categories
+        product_ids_in_category = session.query(ProductMetafield.product_id)\
+            .filter(ProductMetafield.key == 'Produktgruppe')\
+            .filter(ProductMetafield.value.in_(categories)).distinct().subquery()
+
+        # Get all OEM number strings for those products
+        oem_metafields = session.query(ProductMetafield.value)\
+            .filter(ProductMetafield.product_id.in_(product_ids_in_category))\
+            .filter(ProductMetafield.key == 'original_nummer')\
+            .filter(ProductMetafield.value != '')\
+            .filter(ProductMetafield.value != None).all()
+
+        all_oems = set()
+        for oem_string, in oem_metafields:
+            if oem_string:
+                oems = [oem.strip() for oem in oem_string.split(',') if oem.strip()]
+                all_oems.update(oems)
+
+        unique_oems = sorted(list(all_oems))
+        print(f"📊 Found {len(unique_oems)} unique OEM numbers in the database for categories: {categories}")
+        return unique_oems
+
+    except Exception as e:
+        print(f"❌ Database OEM extraction failed: {e}")
+        return []
+    finally:
+        session.close()
+
+def debug_get_product_groups():
+    """Prints all distinct product_group values from the database for debugging."""
+    session = SessionLocal()
+    try:
+        print("\n--- 🕵️‍♂️ DEBUGGING PRODUCT GROUPS ---")
+        groups = session.query(ProductMetafield.value).filter(ProductMetafield.key == 'Produktgruppe').distinct().all()
+        
+        if not groups:
+            print("   -> No 'Produktgruppe' metafields found in the database.")
+            return
+
+        print(f"   -> Found {len(groups)} distinct product groups:")
+        for group, in groups:
+            print(f"      - '{group}'")
+        
+    except Exception as e:
+        print(f"   -> ❌ Error during debug query: {e}")
+    finally:
+        session.close()
+
+def debug_get_product_groups():
+    """Prints all distinct product_group values from the database for debugging."""
+    session = SessionLocal()
+    try:
+        print("\n--- 🕵️‍♂️ DEBUGGING PRODUCT GROUPS ---")
+        groups = session.query(ProductMetafield.value).filter(ProductMetafield.key == 'Produktgruppe').distinct().all()
+        
+        if not groups:
+            print("   -> No 'Produktgruppe' metafields found in the database.")
+            return
+
+        print(f"   -> Found {len(groups)} distinct product groups:")
+        for group, in groups:
+            print(f"      - '{group}'")
+        
+    except Exception as e:
+        print(f"   -> ❌ Error during debug query: {e}")
+    finally:
+        session.close()
 
 def get_cache_stats():
     """Get cache statistics"""

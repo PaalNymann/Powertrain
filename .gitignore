@@ -1,1 +1,8 @@
 .env
+
+# Local env and artifacts
+.env
+powertrain.db
+__pycache__/
+*.pyc
+compatibility_db.json
