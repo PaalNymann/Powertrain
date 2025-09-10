@@ -8,6 +8,10 @@ RapidAPI TecDoc Integration Module - Two-Step Workflow
 import requests
 import time
 from typing import List, Dict, Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- API Configurations ---
 CATALOG_RAPIDAPI_KEY = "48a6ede874mshe38f052cb6a6109p12916fjsn0d0c0912c5ed"
@@ -24,10 +28,15 @@ VIN_DECODER_HEADERS = {
     'x-rapidapi-key': VIN_DECODER_API_KEY
 }
 
+import os
 # --- TecDoc Constants ---
 LANG_ID = 4
 COUNTRY_ID = 62  # Stick to stable country filter used previously
 TYPE_ID = 1      # Passenger cars only
+# Performance knobs (env overridable)
+MAX_ARTICLES_PER_GROUP = int(os.getenv('MAX_ARTICLES_PER_GROUP', '5'))  # details calls per group
+PER_PAGE = MAX_ARTICLES_PER_GROUP
+OEM_EARLY_EXIT_LIMIT = int(os.getenv('OEM_EARLY_EXIT_LIMIT', '50'))
 # Per user's confirmation: use these two product groups
 PRODUCT_GROUPS = [(100062, "Drivaksler"), (100703, "Mellomaksler")]
 # Only accept these article names (automotive shafts). Prevents air filters/wipers etc.
@@ -64,7 +73,7 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
             articles_url = f"{CATALOG_BASE_URL}/articles/list-articles"
             payload = (
                 f"langId={LANG_ID}&countryId={COUNTRY_ID}&typeId={TYPE_ID}"
-                f"&vehicleId={vehicle_id}&productGroupId={group_id}&page=1&perPage=100"
+                f"&vehicleId={vehicle_id}&productGroupId={group_id}&page=1&perPage={PER_PAGE}"
             )
             print(f"   -> list-articles payload: {payload}")
             headers = {**CATALOG_HEADERS, 'content-type': 'application/x-www-form-urlencoded'}
@@ -94,8 +103,8 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
                 print(f"   -> Unexpected non-dict JSON response type: {type(data)}")
 
             print(f"   📦 Found {len(articles)} articles for '{group_name}'.")
-            # Cap processing to first 30 to avoid excessive network time
-            for article in articles[:30]:
+            # Cap processing to first N to avoid excessive network time
+            for article in articles[:MAX_ARTICLES_PER_GROUP]:
                 # 1) Try OEMs directly from list-articles if present
                 oem_list = article.get('oeNumbers')
                 if isinstance(oem_list, list) and oem_list:
@@ -106,6 +115,9 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
                             val = str(oem)
                         if val:
                             all_oems.add(val.strip())
+                    # Early exit if we already have plenty of OEMs
+                    if len(all_oems) >= OEM_EARLY_EXIT_LIMIT:
+                        break
                     continue
 
                 # 2) Otherwise call POST /articles/details to fetch OEMs for this articleId
@@ -116,7 +128,7 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
                     details_url = f"{CATALOG_BASE_URL}/articles/details"
                     details_payload = f"langId={LANG_ID}&countryId={COUNTRY_ID}&articleId={article_id}"
                     details_headers = {**CATALOG_HEADERS, 'content-type': 'application/x-www-form-urlencoded'}
-                    dres = requests.post(details_url, headers=details_headers, data=details_payload, timeout=20)
+                    dres = requests.post(details_url, headers=details_headers, data=details_payload, timeout=8)
                     if dres.status_code != 200:
                         print(f"   -> details status {dres.status_code} for articleId {article_id}")
                         continue
@@ -139,6 +151,9 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
                             val = str(it)
                         if val:
                             all_oems.add(val.strip())
+                    # Early exit if we collected enough OEMs
+                    if len(all_oems) >= OEM_EARLY_EXIT_LIMIT:
+                        break
                 except requests.RequestException as ex:
                     print(f"   -> details exception for articleId {article_id}: {ex}")
 
