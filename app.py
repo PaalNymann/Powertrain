@@ -15,6 +15,18 @@ app = Flask(__name__)
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "https://bm0did-zc.myshopify.com")
 CORS(app, resources={r"/api/*": {"origins": [o.strip() for o in allowed_origins.split(",") if o.strip()]}}, supports_credentials=False)
 
+allowed_origin_list = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+
+@app.after_request
+def add_cors_headers(resp):
+    origin = request.headers.get('Origin')
+    if origin and (origin in allowed_origin_list or "*" in allowed_origin_list):
+        resp.headers['Access-Control-Allow-Origin'] = origin if origin in allowed_origin_list else "*"
+        resp.headers['Vary'] = 'Origin'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Requested-With'
+    return resp
+
 @app.before_request
 def before_request_func():
     init_db()
