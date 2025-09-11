@@ -369,8 +369,30 @@ def car_parts_search():
                         it['product_url'] = f"https://{domain}/products/{it['handle']}"
                 except Exception:
                     pass
+        # Build a human-friendly display string so frontend can render without template changes
+        def _build_vi_display(vi: dict) -> str:
+            parts = []
+            y = vi.get('year')
+            ch = vi.get('chassisnr') or vi.get('vin')
+            gk = vi.get('girkasse') or vi.get('gearbox')
+            dt = vi.get('drift') or vi.get('drivetrain')
+            if y:
+                parts.append(f"År: {y}")
+            if ch:
+                parts.append(f"Chassisnr: {ch}")
+            if gk:
+                parts.append(f"Girkasse: {gk}")
+            if dt:
+                parts.append(f"Drift: {dt}")
+            return " · "+" · ".join(parts) if parts else ""
+
+        vi_display = _build_vi_display(vehicle_info)
+        if vi_display:
+            vehicle_info['display'] = vi_display
+
         resp_obj = {
             'vehicle_info': vehicle_info,
+            'vehicle_info_display': vi_display,
             'shopify_parts': items
         }
         _resp_cache_set(regnr, resp_obj)
