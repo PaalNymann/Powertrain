@@ -390,6 +390,18 @@ def car_parts_search():
         if vi_display:
             vehicle_info['display'] = vi_display
 
+        # Augment 'year' so frontend shows extra info without theme change
+        if year:
+            vehicle_info['year_numeric'] = year
+            parts_year = [str(year)]
+            if gearbox:
+                parts_year.append(f"Girkasse: {gearbox}")
+            if drivetrain:
+                parts_year.append(f"Drift: {drivetrain}")
+            if vin:
+                parts_year.append(f"Chassisnr: {vin}")
+            vehicle_info['year'] = " · ".join(parts_year)
+
         resp_obj = {
             'vehicle_info': vehicle_info,
             'vehicle_info_display': vi_display,
