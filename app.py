@@ -126,18 +126,62 @@ def car_parts_search():
         model = None
         hb = generelt.get('handelsbetegnelse') if isinstance(generelt, dict) else None
         if isinstance(hb, list):
-            # Choose the first non-empty commercial designation (betegnelse) or string
+            # Choose the first non-empty commercial designation (betegnelse or string)
+            # Prefer values with length >= 2 to avoid single-letter series like "S"
+            candidates = []
             for item in hb:
                 if isinstance(item, dict):
                     v = item.get('betegnelse') or item.get('handelsbetegnelse') or item.get('modellnavn') or item.get('navn')
                     if isinstance(v, str) and v.strip():
-                        model = v.strip()
-                        break
+                        candidates.append(v.strip())
                 elif isinstance(item, str) and item.strip():
-                    model = item.strip()
+                    candidates.append(item.strip())
+            # Prefer first with len >= 2
+            for c in candidates:
+                if len(c) >= 2:
+                    model = c
                     break
+            if not model and candidates:
+                model = candidates[0]
         elif isinstance(hb, str):
             model = hb.strip() or None
+        # If no model yet, search entire SVV payload specifically for 'handelsbetegnelse'
+        if not model:
+            def _first_handelsbetegnelse_value(val):
+                if isinstance(val, list):
+                    for it in val:
+                        if isinstance(it, dict):
+                            v = it.get('betegnelse') or it.get('handelsbetegnelse') or it.get('navn')
+                            if isinstance(v, str) and len(v.strip()) >= 2:
+                                return v.strip()
+                        elif isinstance(it, str) and len(it.strip()) >= 2:
+                            return it.strip()
+                elif isinstance(val, dict):
+                    v = val.get('betegnelse') or val.get('handelsbetegnelse') or val.get('navn')
+                    if isinstance(v, str) and len(v.strip()) >= 2:
+                        return v.strip()
+                elif isinstance(val, str) and len(val.strip()) >= 2:
+                    return val.strip()
+                return None
+
+            def _search_hb(obj):
+                if isinstance(obj, dict):
+                    if 'handelsbetegnelse' in obj:
+                        got = _first_handelsbetegnelse_value(obj.get('handelsbetegnelse'))
+                        if got:
+                            return got
+                    for vv in obj.values():
+                        r = _search_hb(vv)
+                        if r:
+                            return r
+                elif isinstance(obj, list):
+                    for it in obj:
+                        r = _search_hb(it)
+                        if r:
+                            return r
+                return None
+            model = _search_hb(vi_raw)
+
         if not model and isinstance(vi_raw, dict):
             # additional fallbacks
             model = vi_raw.get('handelsbetegnelse') or vi_raw.get('modell')
