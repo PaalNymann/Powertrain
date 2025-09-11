@@ -356,17 +356,7 @@ def car_parts_search():
         }
 
         items = [product_to_dict(p) for p in products]
-        # Enrich with variant_id for add-to-cart convenience (safe, cached)
-        for it in items:
-            try:
-                if not it.get('handle'):
-                    continue
-                vid = _get_variant_id_for_handle(it['handle'])
-                if vid:
-                    it['variant_id'] = vid
-            except Exception:
-                pass
-        # Compute product_url and filter to buyable ones (must have variant_id)
+        # Optional: compute product_url from handle using store domain (no external calls)
         domain = _get_store_domain()
         if domain:
             for it in items:
@@ -375,8 +365,6 @@ def car_parts_search():
                         it['product_url'] = f"https://{domain}/products/{it['handle']}"
                 except Exception:
                     pass
-        # Only keep products with a valid online-store variant to prevent 404/add-to-cart issues
-        items = [it for it in items if it.get('variant_id')]
         resp_obj = {
             'vehicle_info': vehicle_info,
             'shopify_parts': items
