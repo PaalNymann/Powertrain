@@ -335,11 +335,28 @@ def car_parts_search():
             return None
 
         def _detect_drivetrain(txt):
-            if any(k in txt for k in ['4wd', 'awd', '4x4', 'firehjuls', 'firehjul']):
+            # Firehjulsdrift (AWD/4x4) — include brand/marketing names
+            awd_keys = [
+                'firehjulsdrift', 'firehjuls', 'fire-hjuls', 'fire-hjul', 'firehjul',
+                '4wd', 'awd', '4x4', '4x4x4', '4x4wd',
+                '4matic', '4-matic', 'xdrive', 'quattro', '4motion', 'haldex'
+            ]
+            # Forhjulsdrift (FWD)
+            fwd_keys = [
+                'forhjulsdrift', 'forhjuls', 'for-hjuls', 'forhjul',
+                'fremhjulsdrift', 'fremhjuls', 'fram', 'framhjulsdrift', 'framhjuls',
+                'fwd'
+            ]
+            # Bakhjulsdrift (RWD)
+            rwd_keys = [
+                'bakhjulsdrift', 'bakhjuls', 'bak-hjuls', 'bak-hjul', 'bakhjul', 'bakdrift',
+                'rwd'
+            ]
+            if any(k in txt for k in awd_keys):
                 return 'Firehjulsdrift'
-            if any(k in txt for k in ['fwd', 'forhjuls', 'fremhjuls', 'forhjul']):
+            if any(k in txt for k in fwd_keys):
                 return 'Forhjulsdrift'
-            if any(k in txt for k in ['rwd', 'bakhjuls', 'bak-hjuls', 'bakhjul']):
+            if any(k in txt for k in rwd_keys):
                 return 'Bakhjulsdrift'
             return None
 
