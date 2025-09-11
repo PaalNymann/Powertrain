@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, B
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 import json
 from typing import List
 
@@ -34,6 +35,131 @@ class ShopifyProduct(Base):
     inventory_quantity = Column(Integer)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
+
+# Vehicle/group -> TecDoc articleIds cache (persistent) for our categories
+class VehicleGroupArticles(Base):
+    __tablename__ = 'vehicle_group_articles'
+    vehicle_id = Column(Integer, primary_key=True)
+    product_group_id = Column(Integer, primary_key=True)
+    article_ids = Column(Text)  # JSON-encoded list of articleId strings
+    updated_at = Column(DateTime)
+
+def get_vehicle_group_article_ids(vehicle_id: int, product_group_id: int, max_age_seconds: int) -> List[str]:
+    """Return cached articleIds for a vehicle/group if entry age <= max_age_seconds, else []."""
+    if not vehicle_id or not product_group_id:
+        return []
+    session = SessionLocal()
+    try:
+        row = (
+            session.query(VehicleGroupArticles)
+            .filter(VehicleGroupArticles.vehicle_id == int(vehicle_id))
+            .filter(VehicleGroupArticles.product_group_id == int(product_group_id))
+            .first()
+        )
+        if not row or not row.article_ids or not row.updated_at:
+            return []
+        age = (datetime.utcnow() - row.updated_at).total_seconds()
+        if age > max_age_seconds:
+            return []
+        try:
+            data = json.loads(row.article_ids)
+            if isinstance(data, list):
+                return [str(x).strip() for x in data if x]
+            return []
+        except Exception:
+            return []
+    finally:
+        session.close()
+
+def upsert_vehicle_group_article_ids(vehicle_id: int, product_group_id: int, article_ids: List[str]):
+    """Insert or update cached articleIds list for a vehicle/group."""
+    if not vehicle_id or not product_group_id:
+        return
+    session = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        payload = json.dumps(sorted({str(x).strip() for x in (article_ids or []) if x}))
+        row = (
+            session.query(VehicleGroupArticles)
+            .filter(VehicleGroupArticles.vehicle_id == int(vehicle_id))
+            .filter(VehicleGroupArticles.product_group_id == int(product_group_id))
+            .first()
+        )
+        if row:
+            row.article_ids = payload
+            row.updated_at = now
+        else:
+            row = VehicleGroupArticles(
+                vehicle_id=int(vehicle_id),
+                product_group_id=int(product_group_id),
+                article_ids=payload,
+                updated_at=now,
+            )
+            session.add(row)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"⚠️ upsert_vehicle_group_article_ids failed for vehicle {vehicle_id}, group {product_group_id}: {e}")
+    finally:
+        session.close()
+
+# VIN -> OEM numbers cache (persistent)
+class VinOemCache(Base):
+    __tablename__ = 'vin_oem_cache'
+    vin = Column(String, primary_key=True)
+    vehicle_id = Column(Integer)
+    oem_numbers = Column(Text)  # JSON-encoded list of OEM strings
+    updated_at = Column(DateTime)
+
+def get_vin_oem_cache(vin: str, max_age_seconds: int) -> List[str]:
+    """Return cached OEMs for a VIN if entry is not older than max_age_seconds. Otherwise []."""
+    if not vin:
+        return []
+    session = SessionLocal()
+    try:
+        row = session.query(VinOemCache).filter(VinOemCache.vin == str(vin)).first()
+        if not row or not row.oem_numbers or not row.updated_at:
+            return []
+        age = (datetime.utcnow() - row.updated_at).total_seconds()
+        if age > max_age_seconds:
+            return []
+        try:
+            data = json.loads(row.oem_numbers)
+            if isinstance(data, list):
+                return [str(x).strip() for x in data if x]
+            return []
+        except Exception:
+            return []
+    finally:
+        session.close()
+
+def upsert_vin_oem_cache(vin: str, vehicle_id: int, oem_numbers: List[str]):
+    """Insert or update cached OEMs for a VIN."""
+    if not vin:
+        return
+    session = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        payload = json.dumps(sorted({str(x).strip() for x in (oem_numbers or []) if x}))
+        row = session.query(VinOemCache).filter(VinOemCache.vin == str(vin)).first()
+        if row:
+            row.vehicle_id = vehicle_id or row.vehicle_id
+            row.oem_numbers = payload
+            row.updated_at = now
+        else:
+            row = VinOemCache(
+                vin=str(vin),
+                vehicle_id=vehicle_id or 0,
+                oem_numbers=payload,
+                updated_at=now,
+            )
+            session.add(row)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"⚠️ upsert_vin_oem_cache failed for {vin}: {e}")
+    finally:
+        session.close()
 
 def get_cached_oems_for_article(article_id: str) -> List[str]:
     """Return cached OEMs for a TecDoc article_id, or [] if not cached."""
@@ -133,15 +259,43 @@ def init_db():
 
 def product_to_dict(product):
     """Convert ShopifyProduct object to dictionary"""
+    # Numeric price and formatted string (two decimals)
+    raw_price = product.price
+    price_number = None
+    price_formatted = None
+    if raw_price is not None:
+        try:
+            dec = Decimal(str(raw_price))
+            price_number = float(dec)
+            price_formatted = f"{dec:.2f}"
+        except (InvalidOperation, ValueError):
+            # fall back to original string
+            try:
+                price_number = float(raw_price)
+                price_formatted = f"{price_number:.2f}"
+            except Exception:
+                price_number = None
+                price_formatted = str(raw_price)
+
+    # Build product URL for convenience (does not affect matching)
+    store_domain = os.getenv('SHOPIFY_STORE_DOMAIN') or os.getenv('ALLOWED_ORIGINS', '').split(',')[0].strip()
+    product_url = None
+    if store_domain and product.handle:
+        domain = store_domain.replace('https://', '').replace('http://', '')
+        product_url = f"https://{domain}/products/{product.handle}"
+
     return {
         'id': product.id,
         'title': product.title,
         'handle': product.handle,
         'sku': product.sku,
-        'price': product.price,
+        'price': price_number,
+        'price_formatted': price_formatted,
+        'price_number': price_number,
         'inventory_quantity': product.inventory_quantity,
         'created_at': product.created_at.isoformat() if product.created_at else None,
-        'updated_at': product.updated_at.isoformat() if product.updated_at else None
+        'updated_at': product.updated_at.isoformat() if product.updated_at else None,
+        'product_url': product_url,
     }
 
 def search_products_by_oem(oem_number, include_number=False):

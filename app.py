@@ -36,6 +36,32 @@ def _get_oems_cached(vin: str):
     VIN_OEM_CACHE[vin] = (now + ttl, oems)
     return oems
 
+# Simple in-memory cache for full search response per license plate (regnr)
+RESPONSE_CACHE = {}
+
+def _resp_cache_get(regnr: str):
+    try:
+        ttl = int(os.getenv('RESPONSE_CACHE_TTL_SECONDS', '60'))  # default 60 seconds
+    except Exception:
+        ttl = 60
+    now = time.time()
+    key = (regnr or '').strip().upper()
+    entry = RESPONSE_CACHE.get(key)
+    if entry:
+        expires_at, data = entry
+        if now < expires_at and isinstance(data, dict):
+            return data
+    return None
+
+def _resp_cache_set(regnr: str, data: dict):
+    try:
+        ttl = int(os.getenv('RESPONSE_CACHE_TTL_SECONDS', '60'))
+    except Exception:
+        ttl = 60
+    now = time.time()
+    key = (regnr or '').strip().upper()
+    RESPONSE_CACHE[key] = (now + ttl, data)
+
 @app.after_request
 def add_cors_headers(resp):
     origin = request.headers.get('Origin')
@@ -61,6 +87,11 @@ def car_parts_search():
         regnr = data.get('license_plate') or data.get('regnr')
     if not regnr:
         return jsonify({'error': 'Missing license plate (regnr)'}), 400
+
+    # Fast path: serve cached response if recent
+    cached_resp = _resp_cache_get(regnr)
+    if cached_resp:
+        return jsonify(cached_resp)
 
     try:
         # 1. Get vehicle info from SVV, including VIN
@@ -230,10 +261,12 @@ def car_parts_search():
             'year': year,
         }
 
-        return jsonify({
+        resp_obj = {
             'vehicle_info': vehicle_info,
             'shopify_parts': [product_to_dict(p) for p in products]
-        })
+        }
+        _resp_cache_set(regnr, resp_obj)
+        return jsonify(resp_obj)
 
     except Exception as e:
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500

@@ -29,7 +29,14 @@ VIN_DECODER_HEADERS = {
 }
 
 import os
-from database import get_cached_oems_for_article, upsert_article_oems
+from database import (
+    get_cached_oems_for_article,
+    upsert_article_oems,
+    get_vin_oem_cache,
+    upsert_vin_oem_cache,
+    get_vehicle_group_article_ids,
+    upsert_vehicle_group_article_ids,
+)
 # --- TecDoc Constants ---
 LANG_ID = 4
 COUNTRY_ID = 62  # Stick to stable country filter used previously
@@ -38,6 +45,8 @@ TYPE_ID = 1      # Passenger cars only
 MAX_ARTICLES_PER_GROUP = int(os.getenv('MAX_ARTICLES_PER_GROUP', '5'))  # details calls per group
 PER_PAGE = MAX_ARTICLES_PER_GROUP
 OEM_EARLY_EXIT_LIMIT = int(os.getenv('OEM_EARLY_EXIT_LIMIT', '50'))
+VIN_DB_CACHE_TTL_SECONDS = int(os.getenv('VIN_DB_CACHE_TTL_SECONDS', '86400'))  # 24h persistent cache
+VEHICLE_GROUP_CACHE_TTL_SECONDS = int(os.getenv('VEHICLE_GROUP_CACHE_TTL_SECONDS', '604800'))  # 7 days
 # Per user's confirmation: use these two product groups
 PRODUCT_GROUPS = [(100062, "Drivaksler"), (100703, "Mellomaksler")]
 # Only accept these article names (automotive shafts). Prevents air filters/wipers etc.
@@ -62,6 +71,15 @@ def get_vehicle_id_from_vin(vin: str) -> Optional[int]:
 
 def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
     """Main workflow to get OEM numbers for a given VIN."""
+    # 0) Persistent VIN cache read (DB). If we have fresh OEMs, use them immediately.
+    try:
+        cached_vin_oems = get_vin_oem_cache(vin, VIN_DB_CACHE_TTL_SECONDS)
+        if cached_vin_oems:
+            return cached_vin_oems
+    except Exception as _:
+        # Cache read failure should not break live lookup
+        pass
+
     vehicle_id = get_vehicle_id_from_vin(vin)
     if not vehicle_id:
         return []
@@ -70,38 +88,55 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
     for group_id, group_name in PRODUCT_GROUPS:
         print(f"\n🔍 Searching for '{group_name}' (ID: {group_id}) for vehicleId: {vehicle_id}")
         try:
-            # Use Ron's correct endpoint: POST /articles/list-articles (x-www-form-urlencoded)
-            articles_url = f"{CATALOG_BASE_URL}/articles/list-articles"
-            payload = (
-                f"langId={LANG_ID}&countryId={COUNTRY_ID}&typeId={TYPE_ID}"
-                f"&vehicleId={vehicle_id}&productGroupId={group_id}&page=1&perPage={PER_PAGE}"
-            )
-            print(f"   -> list-articles payload: {payload}")
-            headers = {**CATALOG_HEADERS, 'content-type': 'application/x-www-form-urlencoded'}
-            response = requests.post(articles_url, headers=headers, data=payload, timeout=30)
-            print(f"   -> Articles API call (POST list-articles) returned status: {response.status_code}")
-            if response.status_code != 200:
-                print(f"   -> Error response: {response.text[:200]}")
-                continue
-            
-            data = response.json()
+            # First try DB-cached articleIds for this vehicle/group
+            cached_article_ids = []
+            try:
+                cached_article_ids = get_vehicle_group_article_ids(vehicle_id, group_id, VEHICLE_GROUP_CACHE_TTL_SECONDS)
+            except Exception:
+                cached_article_ids = []
+
             articles = []
-            if isinstance(data, dict):
-                raw_articles = data.get('articles')
-                if raw_articles is None and isinstance(data.get('data'), dict):
-                    raw_articles = data['data'].get('articles')
-                if isinstance(raw_articles, list):
-                    # Filter strictly by allowed article names
-                    filtered = []
-                    for a in raw_articles:
-                        name = a.get('genericArticleName') or a.get('articleProductName') or ''
-                        if name in ALLOWED_ARTICLE_NAMES:
-                            filtered.append(a)
-                    articles = filtered
-                else:
-                    print(f"   -> Unexpected response format; keys: {list(data.keys())}")
+            if cached_article_ids:
+                # Build minimal article stubs; details/OEMs will be fetched or served from article OEM cache
+                articles = [{ 'articleId': aid } for aid in cached_article_ids]
+                print(f"   -> Using cached {len(articles)} articleIds for vehicleId {vehicle_id}, group {group_id}")
             else:
-                print(f"   -> Unexpected non-dict JSON response type: {type(data)}")
+                # Use Ron's correct endpoint: POST /articles/list-articles (x-www-form-urlencoded)
+                articles_url = f"{CATALOG_BASE_URL}/articles/list-articles"
+                payload = (
+                    f"langId={LANG_ID}&countryId={COUNTRY_ID}&typeId={TYPE_ID}"
+                    f"&vehicleId={vehicle_id}&productGroupId={group_id}&page=1&perPage={PER_PAGE}"
+                )
+                print(f"   -> list-articles payload: {payload}")
+                headers = {**CATALOG_HEADERS, 'content-type': 'application/x-www-form-urlencoded'}
+                response = requests.post(articles_url, headers=headers, data=payload, timeout=30)
+                print(f"   -> Articles API call (POST list-articles) returned status: {response.status_code}")
+                if response.status_code != 200:
+                    print(f"   -> Error response: {response.text[:200]}")
+                    continue
+                
+                data = response.json()
+                if isinstance(data, dict):
+                    raw_articles = data.get('articles')
+                    if raw_articles is None and isinstance(data.get('data'), dict):
+                        raw_articles = data['data'].get('articles')
+                    if isinstance(raw_articles, list):
+                        # Filter strictly by allowed article names
+                        filtered = []
+                        for a in raw_articles:
+                            name = a.get('genericArticleName') or a.get('articleProductName') or ''
+                            if name in ALLOWED_ARTICLE_NAMES:
+                                filtered.append(a)
+                        articles = filtered
+                        # Cache the filtered articleIds persistently for this vehicle/group
+                        try:
+                            upsert_vehicle_group_article_ids(vehicle_id, group_id, [str(a.get('articleId')) for a in articles if a.get('articleId')])
+                        except Exception as _:
+                            pass
+                    else:
+                        print(f"   -> Unexpected response format; keys: {list(data.keys())}")
+                else:
+                    print(f"   -> Unexpected non-dict JSON response type: {type(data)}")
 
             print(f"   📦 Found {len(articles)} articles for '{group_name}'.")
             # Cap processing to first N to avoid excessive network time
@@ -187,7 +222,14 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
             print(f"   ❌ Exception getting articles: {e}")
             continue
     
-    return list(all_oems)
+    oems_list = list(all_oems)
+    # Upsert VIN cache after successful retrieval (even partial set)
+    try:
+        if oems_list:
+            upsert_vin_oem_cache(vin, vehicle_id, oems_list)
+    except Exception as _:
+        pass
+    return oems_list
 
 # --- Test Function ---
 def test_workflow():
