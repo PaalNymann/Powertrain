@@ -353,6 +353,10 @@ def car_parts_search():
             'year': year,
             'gearbox': gearbox,
             'drivetrain': drivetrain,
+            # Norwegian aliases for frontend display
+            'chassisnr': vin,
+            'girkasse': gearbox,
+            'drift': drivetrain,
         }
 
         items = [product_to_dict(p) for p in products]
