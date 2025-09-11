@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
 import traceback
+import time
 from dotenv import load_dotenv
 from database import init_db, product_to_dict, search_products_by_oems, search_products_by_number
 from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
@@ -16,6 +17,24 @@ allowed_origins = os.getenv("ALLOWED_ORIGINS", "https://bm0did-zc.myshopify.com"
 CORS(app, resources={r"/api/*": {"origins": [o.strip() for o in allowed_origins.split(",") if o.strip()]}}, supports_credentials=False)
 
 allowed_origin_list = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+
+# Simple in-memory cache for VIN -> OEM numbers to speed up repeated lookups
+VIN_OEM_CACHE = {}
+
+def _get_oems_cached(vin: str):
+    try:
+        ttl = int(os.getenv('OEM_CACHE_TTL_SECONDS', '600'))  # default 10 minutes
+    except Exception:
+        ttl = 600
+    now = time.time()
+    entry = VIN_OEM_CACHE.get(vin)
+    if entry:
+        expires_at, oems = entry
+        if now < expires_at and oems:
+            return oems
+    oems = get_oem_numbers_from_rapidapi_tecdoc(vin)
+    VIN_OEM_CACHE[vin] = (now + ttl, oems)
+    return oems
 
 @app.after_request
 def add_cors_headers(resp):
@@ -53,8 +72,8 @@ def car_parts_search():
         if not vin:
             return jsonify({'error': 'VIN not found in SVV data'}), 404
 
-        # 2. Get OEM numbers from TecDoc using the VIN
-        oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(vin)
+        # 2. Get OEM numbers from TecDoc using the VIN (cached for speed)
+        oem_numbers = _get_oems_cached(vin)
         if not oem_numbers:
             return jsonify({'error': 'No compatible OEM numbers found from TecDoc for this vehicle'}), 404
 
@@ -107,18 +126,18 @@ def car_parts_search():
         model = None
         hb = generelt.get('handelsbetegnelse') if isinstance(generelt, dict) else None
         if isinstance(hb, list):
-            models = []
+            # Choose the first non-empty commercial designation (betegnelse) or string
             for item in hb:
-                if isinstance(item, str):
-                    if item.strip():
-                        models.append(item.strip())
-                elif isinstance(item, dict):
-                    v = item.get('handelsbetegnelse') or item.get('betegnelse') or item.get('modellnavn') or item.get('navn')
+                if isinstance(item, dict):
+                    v = item.get('betegnelse') or item.get('handelsbetegnelse') or item.get('modellnavn') or item.get('navn')
                     if isinstance(v, str) and v.strip():
-                        models.append(v.strip())
-            model = ', '.join(sorted(set(models))) or None
+                        model = v.strip()
+                        break
+                elif isinstance(item, str) and item.strip():
+                    model = item.strip()
+                    break
         elif isinstance(hb, str):
-            model = hb
+            model = hb.strip() or None
         if not model and isinstance(vi_raw, dict):
             # additional fallbacks
             model = vi_raw.get('handelsbetegnelse') or vi_raw.get('modell')
