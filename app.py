@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 import traceback
 import time
+import requests
 from dotenv import load_dotenv
 from database import init_db, product_to_dict, search_products_by_oems, search_products_by_number
 from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
@@ -61,6 +62,59 @@ def _resp_cache_set(regnr: str, data: dict):
     now = time.time()
     key = (regnr or '').strip().upper()
     RESPONSE_CACHE[key] = (now + ttl, data)
+
+# Variant ID enrichment cache (handle -> variant_id)
+VARIANT_CACHE = {}
+
+def _get_store_domain():
+    dom = os.getenv('SHOPIFY_STORE_DOMAIN')
+    if dom:
+        return dom.replace('https://', '').replace('http://', '')
+    # Fallback to first allowed origin
+    if allowed_origin_list:
+        return allowed_origin_list[0].replace('https://', '').replace('http://', '')
+    return None
+
+def _get_variant_id_for_handle(handle: str):
+    if not handle:
+        return None
+    key = handle.strip()
+    now = time.time()
+    try:
+        ttl = int(os.getenv('VARIANT_CACHE_TTL_SECONDS', '3600'))
+    except Exception:
+        ttl = 3600
+    entry = VARIANT_CACHE.get(key)
+    if entry:
+        exp, vid = entry
+        if now < exp and vid:
+            return vid
+    domain = _get_store_domain()
+    if not domain:
+        return None
+    url = f"https://{domain}/products/{key}.js"
+    try:
+        r = requests.get(url, timeout=8)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        variants = data.get('variants') if isinstance(data, dict) else None
+        vid = None
+        if isinstance(variants, list) and variants:
+            # Prefer first available variant
+            for v in variants:
+                if isinstance(v, dict) and v.get('available') and v.get('id'):
+                    vid = v['id']
+                    break
+            if not vid:
+                first = variants[0]
+                if isinstance(first, dict) and first.get('id'):
+                    vid = first['id']
+        if vid:
+            VARIANT_CACHE[key] = (now + ttl, vid)
+        return vid
+    except Exception:
+        return None
 
 @app.after_request
 def add_cors_headers(resp):
@@ -261,9 +315,20 @@ def car_parts_search():
             'year': year,
         }
 
+        items = [product_to_dict(p) for p in products]
+        # Enrich with variant_id for add-to-cart convenience (safe, cached)
+        for it in items:
+            try:
+                if not it.get('handle'):
+                    continue
+                vid = _get_variant_id_for_handle(it['handle'])
+                if vid:
+                    it['variant_id'] = vid
+            except Exception:
+                pass
         resp_obj = {
             'vehicle_info': vehicle_info,
-            'shopify_parts': [product_to_dict(p) for p in products]
+            'shopify_parts': items
         }
         _resp_cache_set(regnr, resp_obj)
         return jsonify(resp_obj)
