@@ -308,11 +308,51 @@ def car_parts_search():
             if isinstance(ystr2, str) and len(ystr2) >= 4:
                 year = ystr2[:4]
 
+        # Gearbox and drivetrain (display only) from SVV payload
+        def _flatten_texts(obj, acc):
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    _flatten_texts(v, acc)
+            elif isinstance(obj, list):
+                for it in obj:
+                    _flatten_texts(it, acc)
+            elif isinstance(obj, str):
+                s = obj.strip()
+                if s:
+                    acc.append(s)
+            return acc
+        svv_texts = _flatten_texts(vi_raw, [])
+        svv_text = (" " + " | ".join(svv_texts) + " ").lower()
+
+        def _detect_gearbox(txt):
+            # prioritize Automat if both appear
+            auto_keys = ['automat', 'automatic', 'aut.', 'auto-']
+            man_keys = ['manuell', 'manual', 'man.', 'man-']
+            if any(k in txt for k in auto_keys):
+                return 'Automat'
+            if any(k in txt for k in man_keys):
+                return 'Manuell'
+            return None
+
+        def _detect_drivetrain(txt):
+            if any(k in txt for k in ['4wd', 'awd', '4x4', 'firehjuls', 'firehjul']):
+                return 'Firehjulsdrift'
+            if any(k in txt for k in ['fwd', 'forhjuls', 'fremhjuls', 'forhjul']):
+                return 'Forhjulsdrift'
+            if any(k in txt for k in ['rwd', 'bakhjuls', 'bak-hjuls', 'bakhjul']):
+                return 'Bakhjulsdrift'
+            return None
+
+        gearbox = _detect_gearbox(svv_text)
+        drivetrain = _detect_drivetrain(svv_text)
+
         vehicle_info = {
             'vin': vin,
             'make': make,
             'model': model,
             'year': year,
+            'gearbox': gearbox,
+            'drivetrain': drivetrain,
         }
 
         items = [product_to_dict(p) for p in products]
@@ -326,6 +366,17 @@ def car_parts_search():
                     it['variant_id'] = vid
             except Exception:
                 pass
+        # Compute product_url and filter to buyable ones (must have variant_id)
+        domain = _get_store_domain()
+        if domain:
+            for it in items:
+                try:
+                    if it.get('handle') and not it.get('product_url'):
+                        it['product_url'] = f"https://{domain}/products/{it['handle']}"
+                except Exception:
+                    pass
+        # Only keep products with a valid online-store variant to prevent 404/add-to-cart issues
+        items = [it for it in items if it.get('variant_id')]
         resp_obj = {
             'vehicle_info': vehicle_info,
             'shopify_parts': items
@@ -344,7 +395,32 @@ def search_by_number():
 
     try:
         products = search_products_by_number(number)
-        return jsonify([product_to_dict(p) for p in products])
+        items = [product_to_dict(p) for p in products]
+        # Enrich with variant_id and product_url, then filter to buyable only
+        domain = _get_store_domain()
+        for it in items:
+            try:
+                handle = it.get('handle')
+                if handle:
+                    vid = _get_variant_id_for_handle(handle)
+                    if vid:
+                        it['variant_id'] = vid
+                    if domain and not it.get('product_url'):
+                        it['product_url'] = f"https://{domain}/products/{handle}"
+            except Exception:
+                pass
+        # Keep only items with a valid online-store variant
+        items = [it for it in items if it.get('variant_id')]
+        # Deduplicate by handle (keep first)
+        seen = set()
+        dedup = []
+        for it in items:
+            h = it.get('handle')
+            if not h or h in seen:
+                continue
+            seen.add(h)
+            dedup.append(it)
+        return jsonify(dedup)
     except Exception as e:
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
