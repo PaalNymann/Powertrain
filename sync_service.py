@@ -21,6 +21,9 @@ RACKBEAT_API   = os.getenv("RACKBEAT_ENDPOINT", "https://app.rackbeat.com/api/pr
 RACKBEAT_KEY   = os.getenv("RACKBEAT_API_KEY")
 SHOP_DOMAIN    = os.getenv("SHOPIFY_DOMAIN")
 SHOP_TOKEN     = os.getenv("SHOPIFY_TOKEN")
+# Runtime guards
+SYNC_HARD_TIMEOUT_SECONDS = int(os.getenv("SYNC_HARD_TIMEOUT_SECONDS", "900"))  # 15 minutes hard stop
+RACKBEAT_MAX_PAGES = int(os.getenv("RACKBEAT_MAX_PAGES", "100"))  # safety guard
 
 if not all([RACKBEAT_KEY, SHOP_DOMAIN, SHOP_TOKEN]):
     sys.exit("❌  Mangler nødvendige .env-verdier (Rackbeat/Shopify)")
@@ -35,6 +38,21 @@ HEAD_SHOP = {
 }
 
 # ---------- Helpers ----------
+
+def find_variant_by_sku(sku: str):
+    """Find an existing variant by SKU. Returns dict with product_id and variant_id, or None."""
+    try:
+        url = f"https://{SHOP_DOMAIN}/admin/api/2023-10/variants.json?sku={requests.utils.quote(sku)}"
+        r = requests.get(url, headers=HEAD_SHOP, timeout=20)
+        if r.status_code != 200:
+            return None
+        variants = r.json().get("variants", [])
+        if not variants:
+            return None
+        v = variants[0]
+        return {"product_id": v.get("product_id"), "variant_id": v.get("id")}
+    except Exception:
+        return None
 
 def rb_page(page:int=1, limit:int=250):
     """Return (products, pages) tuple for given Rackbeat page"""
@@ -51,13 +69,15 @@ def rb_page(page:int=1, limit:int=250):
     return js["products"], js["pages"]
 
 def fetch_all_rackbeat() -> list[dict]:
-    """Download every Rackbeat product page-by-page"""
+    """Download every Rackbeat product page-by-page (bounded by RACKBEAT_MAX_PAGES)."""
     all_prod, page, pages = [], 1, 1
-    while page <= pages:
+    while page <= pages and page <= RACKBEAT_MAX_PAGES:
         prods, pages = rb_page(page)
         print(f"📥  Page {page}/{pages} → {len(prods)} items")
         all_prod.extend(prods)
         page += 1
+    if page > RACKBEAT_MAX_PAGES:
+        print(f"⚠️  Stopped fetching after {RACKBEAT_MAX_PAGES} pages (safety guard)")
     return all_prod
 
 def filter_keep(p:dict) -> bool:
@@ -76,6 +96,54 @@ def filter_keep(p:dict) -> bool:
     
     print(f"✅ KEEPING: '{p.get('name', 'N/A')[:50]}' (Group: {group_name}, Stock: {p.get('available_quantity', 0)}, Price: {p.get('sales_price', 0)})")
     return True
+
+def unpublish_nonkept_products(kept_skus:set, product_types:list[str]=["Drivaksler","Mellomaksler"]):
+    """Set status=draft for products in the given product_types whose primary variant SKU is not in kept_skus.
+    This removes duplicates and products that no longer meet filter rules.
+    """
+    try:
+        for ptype in product_types:
+            page_info = None
+            while True:
+                url = f"https://{SHOP_DOMAIN}/admin/api/2023-10/products.json?limit=250&product_type={ptype}"
+                if page_info:
+                    url += f"&page_info={page_info}"
+                r = requests.get(url, headers=HEAD_SHOP, timeout=30)
+                if r.status_code != 200:
+                    print(f"   ⚠️ Failed listing products for cleanup ({ptype}): {r.status_code}")
+                    break
+                data = r.json().get("products", [])
+                if not data:
+                    break
+                for pr in data:
+                    variants = pr.get("variants", [])
+                    sku = variants[0].get("sku") if variants else None
+                    pid = pr.get("id")
+                    if sku and pid and sku not in kept_skus:
+                        try:
+                            resp = requests.put(
+                                f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{pid}.json",
+                                headers=HEAD_SHOP,
+                                json={"product": {"id": pid, "status": "draft"}},
+                                timeout=20,
+                            )
+                            if resp.status_code == 200:
+                                print(f"   🗑️ Unpublished non-kept product (SKU: {sku}, ID: {pid})")
+                            else:
+                                print(f"   ⚠️ Unpublish failed for {pid} ({resp.status_code})")
+                        except Exception as e:
+                            print(f"   ⚠️ Unpublish exception for {pid}: {e}")
+                # pagination
+                link = r.headers.get("link", "")
+                if 'rel="next"' in link and "page_info=" in link:
+                    try:
+                        page_info = link.split("page_info=")[1].split(">")[0]
+                    except Exception:
+                        page_info = None
+                else:
+                    break
+    except Exception as e:
+        print(f"   ⚠️ Cleanup error: {e}")
 
 def get_original_nummer_from_metadata(metadata):
     """Extract Original_nummer from metadata array"""
@@ -136,7 +204,12 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
             "title": p["name"] or sku,
             "status": "active",
             "product_type": shopify_collection,
-            "variants":[{"sku": sku, "price": p["sales_price"]}],
+            "variants": [{
+                "sku": sku,
+                "price": p["sales_price"],
+                "inventory_management": "shopify",
+                "inventory_policy": "continue"
+            }],
             "handle": sku.lower().replace(" ","-")
         }
     }
@@ -154,12 +227,12 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
             "type": "single_line_text_field"
         })
     
-    # Product group for filtering
-    if group_name:
+    # Produktgruppe (match DB expectations) – use plural collection naming
+    if shopify_collection:
         metafields.append({
-            "namespace": "custom", 
-            "key": "product_group",
-            "value": group_name,
+            "namespace": "custom",
+            "key": "Produktgruppe",
+            "value": shopify_collection,
             "type": "single_line_text_field"
         })
     
@@ -362,6 +435,58 @@ def create_or_update_product_optimized(payload:dict, metafields:list):
     title = payload["product"]["title"]
     
     try:
+        # Prefer update-by-SKU to avoid duplicates
+        found = find_variant_by_sku(sku)
+        existing_id = found.get("product_id") if found else None
+        variant_id = found.get("variant_id") if found else None
+        if existing_id:
+            update_payload = {"product": {"id": existing_id}}
+            # Copy fields except 'handle' to avoid breaking URLs, keep status active
+            for k, v in payload["product"].items():
+                if k == "handle":
+                    continue
+                update_payload["product"][k] = v
+
+            update_response = requests.put(
+                f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}.json",
+                headers=HEAD_SHOP, json=update_payload, timeout=30
+            )
+            if update_response.status_code == 200:
+                updated_product = update_response.json().get("product", {})
+                # Ensure variant continues selling at 0 stock
+                try:
+                    if variant_id:
+                        requests.put(
+                            f"https://{SHOP_DOMAIN}/admin/api/2023-10/variants/{variant_id}.json",
+                            headers=HEAD_SHOP,
+                            json={"variant": {"id": variant_id, "inventory_management": "shopify", "inventory_policy": "continue"}},
+                            timeout=20,
+                        )
+                except Exception as e:
+                    print(f"   ⚠️ Variant policy update exception: {e}")
+                # Update metafields
+                if metafields:
+                    for metafield in metafields:
+                        metafield_payload = {
+                            "metafield": {
+                                **metafield,
+                                "owner_id": existing_id,
+                                "owner_resource": "product"
+                            }
+                        }
+                        try:
+                            requests.post(
+                                f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
+                                headers=HEAD_SHOP, json=metafield_payload, timeout=20
+                            )
+                        except Exception as e:
+                            print(f"   ⚠️ Metafield update exception: {e}")
+                # Sync to DB using update response (no extra GET)
+                sync_to_database(updated_product, metafields)
+                return existing_id
+            else:
+                print(f"   ❌ Update-by-SKU failed ({update_response.status_code}), falling back to create…")
+
         # Try to create product first (most common case for new sync)
         response = requests.post(
             f"https://{SHOP_DOMAIN}/admin/api/2023-10/products.json",
@@ -401,79 +526,53 @@ def create_or_update_product_optimized(payload:dict, metafields:list):
             return product_id
             
         elif response.status_code == 422:
-            # Product might already exist, try to find and update it
-            error_data = response.json()
-            errors = error_data.get("errors", {})
-            
-            if "Title has already been taken" in str(errors) or "SKU" in str(errors):
-                # Search for existing product by SKU
-                try:
-                    search_response = requests.get(
-                        f"https://{SHOP_DOMAIN}/admin/api/2023-10/products.json?limit=1&fields=id,variants&sku={sku}",
-                        headers=HEAD_SHOP, timeout=20
-                    )
-                    
-                    if search_response.status_code == 200:
-                        search_data = search_response.json()
-                        products = search_data.get("products", [])
-                        
-                        for product in products:
-                            for variant in product.get("variants", []):
-                                if variant.get("sku") == sku:
-                                    existing_id = product.get("id")
-                                    
-                                    # Update existing product
-                                    update_payload = {
-                                        "product": {
-                                            "id": existing_id,
-                                            **payload['product']
-                                        }
-                                    }
-                                    
-                                    update_response = requests.put(
-                                        f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}.json",
-                                        headers=HEAD_SHOP, json=update_payload, timeout=30
-                                    )
-                                    
-                                    if update_response.status_code == 200:
-                                        # Update metafields
-                                        if metafields:
-                                            for metafield in metafields:
-                                                metafield_payload = {
-                                                    "metafield": {
-                                                        **metafield,
-                                                        "owner_id": existing_id,
-                                                        "owner_resource": "product"
-                                                    }
-                                                }
-                                                
-                                                try:
-                                                    requests.post(
-                                                        f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
-                                                        headers=HEAD_SHOP, json=metafield_payload, timeout=20
-                                                    )
-                                                except Exception as e:
-                                                    print(f"   ⚠️ Metafield update exception: {e}")
-                                        
-                                        # 🚨 CRITICAL: Sync updated product to database as well!
-                                        updated_product_response = requests.get(
-                                            f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}.json",
-                                            headers=HEAD_SHOP, timeout=20
-                                        )
-                                        if updated_product_response.status_code == 200:
-                                            updated_product_data = updated_product_response.json().get("product", {})
-                                            sync_to_database(updated_product_data, metafields)
-                                        
-                                        return existing_id
-                                    else:
-                                        print(f"   ❌ Update failed: {update_response.status_code}")
-                                        return None
-                except Exception as e:
-                    print(f"   ❌ Search exception: {e}")
-                
-                return None
+            # Creation failed, try update-by-SKU as fallback
+            found = find_variant_by_sku(sku)
+            existing_id = found.get("product_id") if found else None
+            variant_id = found.get("variant_id") if found else None
+            if existing_id:
+                update_payload = {"product": {"id": existing_id}}
+                for k, v in payload["product"].items():
+                    if k == "handle":
+                        continue
+                    update_payload["product"][k] = v
+                update_response = requests.put(
+                    f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}.json",
+                    headers=HEAD_SHOP, json=update_payload, timeout=30
+                )
+                if update_response.status_code == 200:
+                    updated_product = update_response.json().get("product", {})
+                    # Ensure variant continues selling at 0 stock
+                    try:
+                        if variant_id:
+                            requests.put(
+                                f"https://{SHOP_DOMAIN}/admin/api/2023-10/variants/{variant_id}.json",
+                                headers=HEAD_SHOP,
+                                json={"variant": {"id": variant_id, "inventory_management": "shopify", "inventory_policy": "continue"}},
+                                timeout=20,
+                            )
+                    except Exception as e:
+                        print(f"   ⚠️ Variant policy update exception: {e}")
+                    if metafields:
+                        for metafield in metafields:
+                            metafield_payload = {
+                                "metafield": {
+                                    **metafield,
+                                    "owner_id": existing_id,
+                                    "owner_resource": "product"
+                                }
+                            }
+                            try:
+                                requests.post(
+                                    f"https://{SHOP_DOMAIN}/admin/api/2023-10/metafields.json",
+                                    headers=HEAD_SHOP, json=metafield_payload, timeout=20
+                                )
+                            except Exception as e:
+                                print(f"   ⚠️ Metafield update exception: {e}")
+                    sync_to_database(updated_product, metafields)
+                    return existing_id
             else:
-                print(f"   ❌ Creation failed: {response.status_code} - {errors}")
+                print(f"   ❌ Creation failed: {response.status_code} - {response.text[:160]}")
                 return None
         else:
             print(f"   ❌ Unexpected error: {response.status_code} - {response.text[:200]}")
@@ -567,6 +666,8 @@ def test_ma18002():
 def sync_full():
     try:
         print("🔄 Starting optimized sync with database sync...")
+        started_at = time.time()
+        aborted_by_timeout = False
         
         # Initialize database
         init_db()
@@ -589,6 +690,11 @@ def sync_full():
         kept_skus = set()
         
         for i, p in enumerate(filtered):
+            # Hard timeout guard
+            if time.time() - started_at > SYNC_HARD_TIMEOUT_SECONDS:
+                print("⏱️  Hard timeout reached — aborting further processing")
+                aborted_by_timeout = True
+                break
             try:
                 print(f"📦 Processing {i+1}/{len(filtered)}: {p.get('number', 'N/A')} - {p.get('name', 'N/A')[:40]}")
                 payload, mfs = map_to_shop_payload(p)
@@ -628,10 +734,17 @@ def sync_full():
                 traceback.print_exc()
                 continue
 
-        print(f"✅ Optimized sync with database sync completed!")
+        print("✅ Optimized sync with database sync completed!")
         print(f"   Products processed: {len(filtered)}")
         print(f"   Successful syncs: {success_count}")
         print(f"   Success rate: {success_count/len(filtered)*100:.1f}%")
+        
+        # Unpublish products in our categories that were NOT kept this run
+        try:
+            print("🔧 Cleaning up non-kept products (draft)...")
+            unpublish_nonkept_products(kept_skus)
+        except Exception as e:
+            print(f"   ⚠️ Cleanup step failed: {e}")
         
         # Verify database sync
         session = SessionLocal()
@@ -647,8 +760,9 @@ def sync_full():
             "rackbeat_total": len(rack_all),
             "filtered_kept":  len(filtered),
             "shopify_synced": success_count,
-            "success_rate": f"{success_count/len(filtered)*100:.1f}%",
-            "message": "Optimized sync completed successfully"
+            "success_rate": f"{success_count/len(filtered)*100:.1f}%" if filtered else "0.0%",
+            "message": "Optimized sync completed successfully" if not aborted_by_timeout else "Partial sync stopped by hard timeout",
+            "aborted_by_timeout": aborted_by_timeout
         })
         
     except Exception as e:
