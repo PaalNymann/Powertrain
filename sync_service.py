@@ -24,6 +24,14 @@ SHOP_TOKEN     = os.getenv("SHOPIFY_TOKEN")
 # Runtime guards
 SYNC_HARD_TIMEOUT_SECONDS = int(os.getenv("SYNC_HARD_TIMEOUT_SECONDS", "900"))  # 15 minutes hard stop
 RACKBEAT_MAX_PAGES = int(os.getenv("RACKBEAT_MAX_PAGES", "100"))  # safety guard
+DRIVAKSLER_IMAGE_URL = os.getenv(
+    "DRIVAKSLER_IMAGE_URL",
+    "https://cdn.shopify.com/s/files/1/0715/2615/4389/files/Drivaksel_firk.png?v=1745401674",
+)
+MELLOMAKSLER_IMAGE_URL = os.getenv(
+    "MELLOMAKSLER_IMAGE_URL",
+    "https://cdn.shopify.com/s/files/1/0715/2615/4389/files/Mellomaksel_firk.png?v=1745401674",
+)
 
 if not all([RACKBEAT_KEY, SHOP_DOMAIN, SHOP_TOKEN]):
     sys.exit("❌  Mangler nødvendige .env-verdier (Rackbeat/Shopify)")
@@ -38,6 +46,13 @@ HEAD_SHOP = {
 }
 
 # ---------- Helpers ----------
+
+def get_default_image_url(product_type: str) -> str | None:
+    if product_type == "Drivaksler":
+        return DRIVAKSLER_IMAGE_URL
+    if product_type == "Mellomaksler":
+        return MELLOMAKSLER_IMAGE_URL
+    return None
 
 def find_variant_by_sku(sku: str):
     """Find an existing variant by SKU. Returns dict with product_id and variant_id, or None."""
@@ -68,16 +83,17 @@ def rb_page(page:int=1, limit:int=250):
     js = r.json()
     return js["products"], js["pages"]
 
-def fetch_all_rackbeat() -> list[dict]:
-    """Download every Rackbeat product page-by-page (bounded by RACKBEAT_MAX_PAGES)."""
+def fetch_all_rackbeat(max_pages: int | None = None) -> list[dict]:
+    """Download every Rackbeat product page-by-page (bounded by RACKBEAT_MAX_PAGES or max_pages override)."""
+    limit_pages = max_pages if (isinstance(max_pages, int) and max_pages > 0) else RACKBEAT_MAX_PAGES
     all_prod, page, pages = [], 1, 1
-    while page <= pages and page <= RACKBEAT_MAX_PAGES:
+    while page <= pages and page <= limit_pages:
         prods, pages = rb_page(page)
         print(f"📥  Page {page}/{pages} → {len(prods)} items")
         all_prod.extend(prods)
         page += 1
-    if page > RACKBEAT_MAX_PAGES:
-        print(f"⚠️  Stopped fetching after {RACKBEAT_MAX_PAGES} pages (safety guard)")
+    if page > limit_pages:
+        print(f"⚠️  Stopped fetching after {limit_pages} pages (safety guard)")
     return all_prod
 
 def filter_keep(p:dict) -> bool:
@@ -199,6 +215,7 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
     }
     shopify_collection = collection_mapping.get(group_name, "Uncategorized")
     
+    img_url = get_default_image_url(shopify_collection)
     payload = {
         "product": {
             "title": p["name"] or sku,
@@ -210,9 +227,11 @@ def map_to_shop_payload(p:dict) -> tuple[dict,dict]:
                 "inventory_management": "shopify",
                 "inventory_policy": "continue"
             }],
-            "handle": sku.lower().replace(" ","-")
+            "handle": sku.lower().replace(" ","-"),
         }
     }
+    if img_url:
+        payload["product"]["images"] = [{"src": img_url}]
     
     # Extract metafields - OEM numbers and other relevant data
     metafields = []
@@ -453,6 +472,19 @@ def create_or_update_product_optimized(payload:dict, metafields:list):
             )
             if update_response.status_code == 200:
                 updated_product = update_response.json().get("product", {})
+                # Ensure product has at least one image
+                try:
+                    if not updated_product.get("images"):
+                        img_url = get_default_image_url(payload["product"].get("product_type"))
+                        if img_url:
+                            requests.post(
+                                f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}/images.json",
+                                headers=HEAD_SHOP,
+                                json={"image": {"src": img_url}},
+                                timeout=20,
+                            )
+                except Exception as e:
+                    print(f"   ⚠️ Image attach exception: {e}")
                 # Ensure variant continues selling at 0 stock
                 try:
                     if variant_id:
@@ -542,6 +574,19 @@ def create_or_update_product_optimized(payload:dict, metafields:list):
                 )
                 if update_response.status_code == 200:
                     updated_product = update_response.json().get("product", {})
+                    # Ensure product has at least one image
+                    try:
+                        if not updated_product.get("images"):
+                            img_url = get_default_image_url(payload["product"].get("product_type"))
+                            if img_url:
+                                requests.post(
+                                    f"https://{SHOP_DOMAIN}/admin/api/2023-10/products/{existing_id}/images.json",
+                                    headers=HEAD_SHOP,
+                                    json={"image": {"src": img_url}},
+                                    timeout=20,
+                                )
+                    except Exception as e:
+                        print(f"   ⚠️ Image attach exception: {e}")
                     # Ensure variant continues selling at 0 stock
                     try:
                         if variant_id:
@@ -672,8 +717,15 @@ def sync_full():
         # Initialize database
         init_db()
         
-        rack_all   = fetch_all_rackbeat()
+        # Optional query parameters to support incremental/dry runs without cleanup side-effects
+        mp = request.args.get('max_pages', type=int)
+        limit = request.args.get('limit', type=int)
+        skip_cleanup = str(request.args.get('skip_cleanup', '0')).lower() in ('1','true','yes','on')
+
+        rack_all   = fetch_all_rackbeat(max_pages=mp)
         filtered   = [p for p in rack_all if filter_keep(p)]
+        if isinstance(limit, int) and limit > 0:
+            filtered = filtered[:limit]
         print(f"✅  Rackbeat total {len(rack_all)} → holder {len(filtered)}")
 
         if not filtered:
@@ -740,11 +792,12 @@ def sync_full():
         print(f"   Success rate: {success_count/len(filtered)*100:.1f}%")
         
         # Unpublish products in our categories that were NOT kept this run
-        try:
-            print("🔧 Cleaning up non-kept products (draft)...")
-            unpublish_nonkept_products(kept_skus)
-        except Exception as e:
-            print(f"   ⚠️ Cleanup step failed: {e}")
+        if not skip_cleanup:
+            try:
+                print("🔧 Cleaning up non-kept products (draft)...")
+                unpublish_nonkept_products(kept_skus)
+            except Exception as e:
+                print(f"   ⚠️ Cleanup step failed: {e}")
         
         # Verify database sync
         session = SessionLocal()
