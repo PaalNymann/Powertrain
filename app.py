@@ -417,15 +417,14 @@ def car_parts_search():
 
         # 2. Get OEM numbers from TecDoc using the VIN (cached for speed)
         oem_numbers = _get_oems_cached(vin)
-        if not oem_numbers:
-            return jsonify({'error': 'Beklager så mye, ingen deler er funnet til denne bilen', 'vehicle_info': vehicle_info}), 404
 
         # 3. Search for products in our database using the OEM numbers from TecDoc (strict, no fallback)
-        products = search_products_by_oems(oem_numbers)
-        if not products:
-            return jsonify({'error': 'Beklager så mye, ingen deler er funnet til denne bilen', 'vehicle_info': vehicle_info}), 404
+        # Requirement: Always return vehicle_info even if no products are found (no 404 here).
+        products = []
+        if oem_numbers:
+            products = search_products_by_oems(oem_numbers)
 
-        items = [product_to_dict(p) for p in products]
+        items = [product_to_dict(p) for p in products] if products else []
         # Enrich each item with variant_id (buyable) and product_url; then sort buyable first and deduplicate by handle
         domain = _get_store_domain()
         for it in items:
