@@ -151,24 +151,14 @@ def car_parts_search():
         # 1. Get vehicle info from SVV, including VIN
         vehicle_data = hent_kjoretoydata(regnr)
         if not vehicle_data or not vehicle_data.get('kjoretoydataListe'):
-            return jsonify({'error': 'Could not retrieve vehicle data from SVV'}), 404
+            return jsonify({'error': 'Could not retrieve vehicle data from SVV', 'vehicle_info': {}}), 404
         
-        vin = vehicle_data['kjoretoydataListe'][0].get('kjoretoyId', {}).get('understellsnummer')
+        vi_raw = vehicle_data['kjoretoydataListe'][0]
+        vin = vi_raw.get('kjoretoyId', {}).get('understellsnummer')
         if not vin:
-            return jsonify({'error': 'VIN not found in SVV data'}), 404
+            return jsonify({'error': 'VIN not found in SVV data', 'vehicle_info': {}}), 404
 
-        # 2. Get OEM numbers from TecDoc using the VIN (cached for speed)
-        oem_numbers = _get_oems_cached(vin)
-        if not oem_numbers:
-            return jsonify({'error': 'No compatible OEM numbers found from TecDoc for this vehicle'}), 404
-
-        # 3. Search for products in our database using the OEM numbers from TecDoc (strict, no fallback)
-        products = search_products_by_oems(oem_numbers)
-        if not products:
-            return jsonify({'error': 'No products found in the database for the retrieved OEM numbers'}), 404
-
-        # Build a lightweight vehicle_info structure (best-effort; fields may be empty)
-        vi_raw = vehicle_data['kjoretoydataListe'][0] if vehicle_data.get('kjoretoydataListe') else {}
+        # Build a lightweight vehicle_info structure (best-effort; fields may be empty). Build this BEFORE TecDoc lookup so we can return it with 404s.
         # Prefer nested tekniskGodkjenning.tekniskeData.generelt; fallback to tekniskeData.generelt
         tg = (vi_raw.get('tekniskGodkjenning') or {}).get('tekniskeData') or vi_raw.get('tekniskeData') or {}
         generelt = tg.get('generelt', {}) if isinstance(tg, dict) else {}
@@ -337,20 +327,21 @@ def car_parts_search():
         def _detect_drivetrain(txt):
             # Firehjulsdrift (AWD/4x4) — include brand/marketing names
             awd_keys = [
-                'firehjulsdrift', 'firehjuls', 'fire-hjuls', 'fire-hjul', 'firehjul',
+                'firehjulsdrift', 'firehjuls', 'fire-hjuls', 'fire-hjul', 'firehjul', 'firehjulstrekk', 'firehjulstrekk',
+                'allhjulsdrift', 'allehjulsdrift', 'allhjuls', 'allehjuls', 'alle hjul', 'alle-hjul',
                 '4wd', 'awd', '4x4', '4x4x4', '4x4wd',
                 '4matic', '4-matic', 'xdrive', 'quattro', '4motion', 'haldex'
             ]
             # Forhjulsdrift (FWD)
             fwd_keys = [
-                'forhjulsdrift', 'forhjuls', 'for-hjuls', 'forhjul',
-                'fremhjulsdrift', 'fremhjuls', 'fram', 'framhjulsdrift', 'framhjuls',
-                'fwd'
+                'forhjulsdrift', 'forhjuls', 'for-hjuls', 'forhjul', 'forhjulstrekk', 'for-hjulstrekk',
+                'fremhjulsdrift', 'fremhjuls', 'fram', 'framhjulsdrift', 'framhjuls', 'framhjulstrekk',
+                'fwd', 'foran', 'front'
             ]
             # Bakhjulsdrift (RWD)
             rwd_keys = [
-                'bakhjulsdrift', 'bakhjuls', 'bak-hjuls', 'bak-hjul', 'bakhjul', 'bakdrift',
-                'rwd'
+                'bakhjulsdrift', 'bakhjuls', 'bak-hjuls', 'bak-hjul', 'bakhjul', 'bakdrift', 'bakhjulstrekk', 'bak-hjulstrekk',
+                'rwd', 'bak'
             ]
             if any(k in txt for k in awd_keys):
                 return 'Firehjulsdrift'
@@ -360,8 +351,56 @@ def car_parts_search():
                 return 'Bakhjulsdrift'
             return None
 
+        # Prefer explicit SVV keys related to driveline if present
+        def _extract_texts_for_keys(obj, key_substrings):
+            out = []
+            def rec(o):
+                if isinstance(o, dict):
+                    for k, v in o.items():
+                        kl = str(k).lower()
+                        if any(sub in kl for sub in key_substrings):
+                            # Capture direct string/number
+                            if isinstance(v, (str, int, float)):
+                                s = str(v).strip()
+                                if s:
+                                    out.append(s)
+                            # Capture nested descriptive fields
+                            if isinstance(v, dict):
+                                for kk in ('betegnelse','kodeBeskrivelse','kodebeskrivelse','beskrivelse','navn','verdi','value','description'):
+                                    vv = v.get(kk)
+                                    if isinstance(vv, (str,int,float)):
+                                        s = str(vv).strip()
+                                        if s:
+                                            out.append(s)
+                            if isinstance(v, list):
+                                for it in v:
+                                    if isinstance(it, (str,int,float)):
+                                        s = str(it).strip()
+                                        if s:
+                                            out.append(s)
+                                    elif isinstance(it, dict):
+                                        for kk in ('betegnelse','kodeBeskrivelse','kodebeskrivelse','beskrivelse','navn','verdi','value','description'):
+                                            vv = it.get(kk)
+                                            if isinstance(vv, (str,int,float)):
+                                                s = str(vv).strip()
+                                                if s:
+                                                    out.append(s)
+                        # Recurse regardless to catch deeper matches
+                        rec(v)
+                elif isinstance(o, list):
+                    for it in o:
+                        rec(it)
+            rec(obj)
+            return out
+
         gearbox = _detect_gearbox(svv_text)
-        drivetrain = _detect_drivetrain(svv_text)
+        # Try key-based extraction first for drivetrain, then fallback to generic text scan
+        key_texts = _extract_texts_for_keys(vi_raw, ['hjuldrift','drivhjul','drivsystem','drivlin','drivverk','drift'])
+        drivetrain = None
+        if key_texts:
+            drivetrain = _detect_drivetrain((" "+" | ".join(str(t) for t in key_texts)+" ").lower())
+        if not drivetrain:
+            drivetrain = _detect_drivetrain(svv_text)
 
         vehicle_info = {
             'vin': vin,
@@ -377,15 +416,39 @@ def car_parts_search():
         }
 
         items = [product_to_dict(p) for p in products]
-        # Optional: compute product_url from handle using store domain (no external calls)
+        # Enrich each item with variant_id (buyable) and product_url; then sort buyable first and deduplicate by handle
         domain = _get_store_domain()
-        if domain:
-            for it in items:
-                try:
-                    if it.get('handle') and not it.get('product_url'):
-                        it['product_url'] = f"https://{domain}/products/{it['handle']}"
-                except Exception:
-                    pass
+        for it in items:
+            try:
+                handle = it.get('handle')
+                if handle:
+                    # Get an online-store variant id (prefers available variant, falls back to first)
+                    vid = _get_variant_id_for_handle(handle)
+                    if vid:
+                        it['variant_id'] = vid
+                    # Build product URL for the storefront
+                    if domain and not it.get('product_url'):
+                        it['product_url'] = f"https://{domain}/products/{handle}"
+                # Mark buyable if we have a variant_id
+                it['buyable'] = bool(it.get('variant_id'))
+            except Exception:
+                # Do not fail entire request due to one item
+                pass
+        # Sort: buyable items first
+        try:
+            items.sort(key=lambda x: 0 if x.get('buyable') else 1)
+        except Exception:
+            pass
+        # Deduplicate by handle (keep first occurrence)
+        seen = set()
+        dedup = []
+        for it in items:
+            h = it.get('handle')
+            if not h or h in seen:
+                continue
+            seen.add(h)
+            dedup.append(it)
+        items = dedup
         # Build a human-friendly display string so frontend can render without template changes
         def _build_vi_display(vi: dict) -> str:
             parts = []
