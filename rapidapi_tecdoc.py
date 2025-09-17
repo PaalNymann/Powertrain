@@ -17,11 +17,15 @@ load_dotenv()
 import os
 
 CATALOG_RAPIDAPI_KEY = os.getenv("CATALOG_RAPIDAPI_KEY") or os.getenv("RAPIDAPI_TECDOC_CATALOG_KEY") or ""
-CATALOG_BASE_URL = "https://tecdoc-catalog.p.rapidapi.com"
+# Make base URL and host configurable via env (endpoint-only change)
+CATALOG_BASE_URL = os.getenv("TECDOC_CATALOG_BASE_URL", "https://tecdoc-catalog.p.rapidapi.com")
+CATALOG_HOST = os.getenv("TECDOC_CATALOG_HOST", "tecdoc-catalog.p.rapidapi.com")
 CATALOG_HEADERS = {
-    'x-rapidapi-host': 'tecdoc-catalog.p.rapidapi.com',
+    'x-rapidapi-host': CATALOG_HOST,
     'x-rapidapi-key': CATALOG_RAPIDAPI_KEY
 }
+# Allow overriding the list-articles path via env (default kept the same)
+LIST_ARTICLES_PATH = os.getenv("TECDOC_LIST_ARTICLES_PATH", "/articles/list-articles")
 
 VIN_DECODER_API_KEY = os.getenv("VIN_DECODER_API_KEY") or os.getenv("RAPIDAPI_VIN_DECODER_KEY") or ""
 VIN_DECODER_BASE_URL = "https://vin-decoder-support-tecdoc-catalog.p.rapidapi.com/"
@@ -98,7 +102,7 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
         Returns a raw list of article dicts (unfiltered)."""
         # 1) Try POST list-articles
         try:
-            articles_url = f"{CATALOG_BASE_URL}/articles/list-articles"
+            articles_url = f"{CATALOG_BASE_URL}{LIST_ARTICLES_PATH}"
             payload = (
                 f"langId={LANG_ID}&countryId={COUNTRY_ID}&typeId={TYPE_ID}"
                 f"&vehicleId={vehicle_id}&productGroupId={group_id}&page=1&perPage={per_page}"
