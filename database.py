@@ -13,10 +13,7 @@ class ShopifyProduct(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
-    vendor = Column(String(200))
-    product_type = Column(String(200))
-    tags = Column(Text)
-    # Metafields som faktisk finnes i databasen
+    # Only include metafields that actually exist in Railway DB
     oem_metafield = Column(Text)
     original_nummer_metafield = Column(Text)
     number_metafield = Column(Text)
@@ -131,9 +128,9 @@ def update_shopify_cache(products_data):
                 # Update existing product
                 existing_product.title = product_data.get('title', '')
                 existing_product.handle = product_data.get('handle', '')
-                existing_product.vendor = product_data.get('vendor', '')
-                existing_product.product_type = product_data.get('product_type', '')
-                existing_product.tags = product_data.get('tags', '')
+                existing_product.oem_metafield = product_data.get('oem_metafield', '')
+                existing_product.original_nummer_metafield = product_data.get('original_nummer_metafield', '')
+                existing_product.number_metafield = product_data.get('number_metafield', '')
                 existing_product.price = product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else ''
                 existing_product.updated_at = datetime.utcnow()
                 
@@ -163,11 +160,9 @@ def update_shopify_cache(products_data):
                 new_product = ShopifyProduct(
                     title=product_data.get('title', ''),
                     handle=product_data.get('handle', ''),
-                    vendor=product_data.get('vendor', ''),
-                    product_type=product_data.get('product_type', ''),
-                    tags=product_data.get('tags', ''),
-                    price=product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else '',
-                    inventory_quantity=0
+                    oem_metafield=product_data.get('oem_metafield', ''),
+                    original_nummer_metafield=product_data.get('original_nummer_metafield', ''),
+                    number_metafield=product_data.get('number_metafield', '')
                 )
                 
                 # Set metafields if available
