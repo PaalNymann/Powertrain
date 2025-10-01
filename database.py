@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, or_
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, or_, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -13,10 +13,7 @@ class ShopifyProduct(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
-    # Only include metafields that actually exist in Railway DB
-    oem_metafield = Column(Text)
-    original_nummer_metafield = Column(Text)
-    number_metafield = Column(Text)
+    # Railway DB has NO metafield columns - only basic product info
     inventory_quantity = Column(Integer, default=0)
     price = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -45,68 +42,45 @@ def init_db():
         print(f"Error initializing database: {e}")
         raise
 
-def search_products_by_oem(oem_number, include_number=False):
-    """Search for products by OEM number in available metafields"""
+def search_products_by_oem(oem_numbers):
+    """Search for products by OEM numbers in title field (Railway DB has no metafield columns)"""
     session = SessionLocal()
     try:
-        from sqlalchemy import or_, func
+        all_products = []
         
-        # Clean and normalize the OEM number for better matching
-        clean_oem = oem_number.strip().upper().replace(' ', '').replace('-', '')
-        
-        # Search in available metafields for license plate search
-        # Use more flexible matching with LIKE and pattern variations
-        oem_condition = or_(
-            ShopifyProduct.oem_metafield.like(f'%{clean_oem}%'),
-            ShopifyProduct.oem_metafield.like(f'%{oem_number}%'),
-            func.upper(ShopifyProduct.oem_metafield).like(f'%{clean_oem}%')
-        )
-        
-        original_condition = or_(
-            ShopifyProduct.original_nummer_metafield.like(f'%{clean_oem}%'),
-            ShopifyProduct.original_nummer_metafield.like(f'%{oem_number}%'),
-            func.upper(ShopifyProduct.original_nummer_metafield).like(f'%{clean_oem}%')
-        )
-        
-        # Search in number metafield (only if include_number is True for free-text search)
-        if include_number:
-            number_condition = or_(
-                ShopifyProduct.number_metafield.like(f'%{clean_oem}%'),
-                ShopifyProduct.number_metafield.like(f'%{oem_number}%'),
-                func.upper(ShopifyProduct.number_metafield).like(f'%{clean_oem}%')
+        for oem_number in oem_numbers:
+            clean_oem = oem_number.strip()
+            
+            # Search in title field for OEM numbers since Railway DB has no metafield columns
+            title_condition = or_(
+                ShopifyProduct.title.like(f'%{clean_oem}%'),
+                ShopifyProduct.title.like(f'%{oem_number}%'),
+                func.upper(ShopifyProduct.title).like(f'%{clean_oem.upper()}%'),
+                func.upper(ShopifyProduct.title).like(f'%{oem_number.upper()}%')
             )
-            query = session.query(ShopifyProduct).filter(
-                or_(oem_condition, original_condition, number_condition)
-            )
-        else:
-            query = session.query(ShopifyProduct).filter(
-                or_(oem_condition, original_condition)
-            )
+            
+            query = session.query(ShopifyProduct).filter(title_condition)
+            products = query.all()
+            
+            print(f"🔍 Searching for OEM {oem_number} in product titles: found {len(products)} matches")
+            
+            # Convert to dictionary format
+            result = []
+            for product in products:
+                product_dict = {
+                    'id': str(product.id),
+                    'title': product.title,
+                    'handle': product.handle,
+                    'oem': oem_number,  # Use the searched OEM number
+                    'price': '0',  # Default since Railway DB has no price column
+                    'inventory_quantity': 1  # Assume available since Railway DB has no inventory column
+                }
+                result.append(product_dict)
+            
+            all_products.extend(result)
         
-        products = query.all()
-        
-        # Convert to dictionary format
-        result = []
-        for product in products:
-            product_dict = {
-                'id': str(product.id),  # Use id instead of product_id
-                'title': product.title,
-                'handle': product.handle,
-                'vendor': product.vendor,
-                'product_type': product.product_type,
-                'tags': product.tags,
-                'oem': product.oem_metafield,
-                'original_nummer': product.original_nummer_metafield,
-                'number': product.number_metafield,
-                'inventory_quantity': product.inventory_quantity,
-                'price': product.price,
-                'created_at': product.created_at.isoformat() if product.created_at else None,
-                'updated_at': product.updated_at.isoformat() if product.updated_at else None
-            }
-            result.append(product_dict)
-        
-        print(f"🔍 Found {len(result)} products matching OEM number: {oem_number}")
-        return result
+        print(f"✅ Found {len(all_products)} matching Shopify products")
+        return all_products
         
     except Exception as e:
         print(f"Error searching database: {e}")
