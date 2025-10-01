@@ -240,12 +240,9 @@ def car_parts_search():
         
         # Step 3: Search Shopify products for OEM numbers
         print(f"🛍️ Step 3: Searching Shopify products for OEM numbers")
-        all_products = []
         
-        for oem_number in oem_numbers:
-            products = search_products_by_oem(oem_number, include_number=False)
-            if products:
-                all_products.extend(products)
+        # Use new function signature that takes list of OEM numbers
+        all_products = search_products_by_oem(oem_numbers)
         
         # Remove duplicates
         unique_products = []
@@ -280,7 +277,7 @@ def part_number_search():
     
     try:
         # Search in database with include_number=True for free text search
-        products = search_products_by_oem(part_number, include_number=True)
+        products = search_products_by_oem([part_number])
         
         print(f"✅ Found {len(products)} matching products")
         
