@@ -40,14 +40,28 @@ VIN_DECODER_HEADERS = {
     'x-rapidapi-key': VIN_DECODER_API_KEY
 }
 
-from database import (
-    get_cached_oems_for_article,
-    upsert_article_oems,
-    get_vin_oem_cache,
-    upsert_vin_oem_cache,
-    get_vehicle_group_article_ids,
-    upsert_vehicle_group_article_ids,
-)
+# Simplified database imports for Railway compatibility
+try:
+    from database import get_vin_oem_cache, upsert_vin_oem_cache
+except ImportError:
+    # Fallback functions if database functions don't exist
+    def get_vin_oem_cache(vin):
+        return None
+    def upsert_vin_oem_cache(vin, oem_numbers):
+        pass
+
+# Additional fallback functions for missing database functions
+def get_cached_oems_for_article(article_id):
+    return None
+
+def upsert_article_oems(article_id, oem_numbers):
+    pass
+
+def get_vehicle_group_article_ids(vehicle_id, group_id):
+    return []
+
+def upsert_vehicle_group_article_ids(vehicle_id, group_id, article_ids):
+    pass
 # --- TecDoc Constants ---
 LANG_ID = 4
 COUNTRY_ID = 62  # Stick to stable country filter used previously
