@@ -169,12 +169,26 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
 @app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
     """Search for car parts by license plate"""
-    # Support both GET and POST requests
+    # Support both GET and POST requests with debug logging
+    print(f"🔍 Request method: {request.method}")
+    print(f"🔍 Request args: {dict(request.args)}")
+    print(f"🔍 Request form: {dict(request.form)}")
+    
     if request.method == 'POST':
         data = request.get_json() or {}
-        regnr = data.get('regnr', '').upper()
+        print(f"🔍 POST JSON data: {data}")
+        # Try multiple parameter names that frontend might use
+        regnr = (data.get('regnr') or data.get('licensePlate') or 
+                data.get('license_plate') or data.get('regNr') or '').upper()
+        
+        # Also check form data if JSON is empty
+        if not regnr:
+            regnr = (request.form.get('regnr') or request.form.get('licensePlate') or 
+                    request.form.get('license_plate') or request.form.get('regNr') or '').upper()
     else:
         regnr = request.args.get('regnr', '').upper()
+    
+    print(f"🔍 Extracted regnr: '{regnr}'")
     
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
