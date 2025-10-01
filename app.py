@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 from database import init_db, search_products_by_oem, update_shopify_cache
 from svv_client import hent_kjoretoydata
+from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
 
 load_dotenv()
 
@@ -214,13 +215,17 @@ def car_parts_search():
         
         print(f"✅ Vehicle info extracted: {vehicle_info}")
         
-        # Step 2: Get OEM numbers from TecDoc API
+        # Step 2: Get OEM numbers from TecDoc API using working rapidapi_tecdoc module
         print(f"🔍 Step 2: Getting OEM numbers from TecDoc API for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
-        oem_numbers = get_oem_numbers_from_tecdoc(
-            vehicle_info['make'], 
-            vehicle_info['model'], 
-            vehicle_info['year']
-        )
+        
+        # Use VIN from SVV data for direct OEM lookup (more accurate than make/model/year)
+        vin = vehicle_data.get('kjoretoydataListe', [{}])[0].get('kjoretoyId', {}).get('understellsnummer', '')
+        if vin:
+            print(f"🔍 Using VIN {vin} for direct TecDoc OEM lookup")
+            oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(vin)
+        else:
+            print(f"⚠️ No VIN found, using fallback method")
+            oem_numbers = []
         
         if not oem_numbers:
             print(f"📦 No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
