@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/nyman/powertrain_system/Powertrain/sync_service.py", line 581, in <module>
+    from database import SessionLocal, ShopifyProduct, ProductMetafield
+ImportError: cannot import name 'ProductMetafield' from 'database' (/Users/nyman/powertrain_system/Powertrain/database.py)

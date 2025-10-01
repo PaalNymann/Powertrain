@@ -1,10 +1,51 @@
+🔧 DATABASE_URL from environment: None
+⚠️ Falling back to local SQLite database
  * Serving Flask app 'app'
- * Debug mode: on
-[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
  * Running on all addresses (0.0.0.0)
  * Running on http://127.0.0.1:8000
- * Running on http://192.168.87.249:8000
-[33mPress CTRL+C to quit[0m
- * Restarting with stat
- * Debugger is active!
- * Debugger PIN: 426-042-974
+ * Running on http://192.168.20.168:8000
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:20:59] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:20:59] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:00] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:01] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:01] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:02] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:02] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:03] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:03] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:04] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:04] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:05] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:05] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:06] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:06] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:07] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:07] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:08] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:08] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:09] "[33mGET /health HTTP/1.1[0m" 404 -
+Database initialized
+INFO:werkzeug:127.0.0.1 - - [16/Sep/2025 10:21:09] "[35m[1mGET /api/car_parts_search?regnr=ZT41818 HTTP/1.1[0m" 500 -
