@@ -166,10 +166,15 @@ def get_oem_numbers_from_tecdoc(brand, model, year):
         print(f"❌ Error calling TecDoc API: {e}")
         return []
 
-@app.route('/api/car_parts_search')
+@app.route('/api/car_parts_search', methods=['GET', 'POST'])
 def car_parts_search():
     """Search for car parts by license plate"""
-    regnr = request.args.get('regnr', '').upper()
+    # Support both GET and POST requests
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        regnr = data.get('regnr', '').upper()
+    else:
+        regnr = request.args.get('regnr', '').upper()
     
     if not regnr:
         return jsonify({'error': 'Missing license plate'}), 400
