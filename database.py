@@ -14,12 +14,12 @@ Base = declarative_base()
 class ShopifyProduct(Base):
     __tablename__ = 'shopify_products'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(String, primary_key=True)  # Shopify product ID is string
     title = Column(String(500), nullable=False)
     handle = Column(String(500), nullable=False)
-    # Railway DB has NO metafield columns - only basic product info
+    sku = Column(String(100))  # SKU column that exists in Railway DB
+    price = Column(String(50))  # Price column that exists in Railway DB
     inventory_quantity = Column(Integer, default=0)
-    price = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -40,8 +40,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def get_shopify_product_data(product_id):
     """Fetch real Shopify product data including price, SKU, variant_id and inventory"""
     try:
-        shopify_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
-        shopify_shop = os.getenv('SHOPIFY_SHOP_NAME')
+        shopify_token = os.getenv('SHOPIFY_TOKEN')
+        shopify_shop = os.getenv('SHOPIFY_DOMAIN')
         
         if not shopify_token or not shopify_shop:
             print("❌ Missing Shopify credentials")
@@ -84,55 +84,71 @@ def init_db():
         raise
 
 def search_products_by_oem(oem_numbers):
-    """Search for products by OEM numbers in title field (Railway DB has no metafield columns)"""
-    session = SessionLocal()
+    """Search for products by OEM numbers directly in Shopify API"""
     try:
+        shopify_token = os.getenv('SHOPIFY_TOKEN')
+        shopify_shop = os.getenv('SHOPIFY_DOMAIN')
+        
+        if not shopify_token or not shopify_shop:
+            print("❌ Missing Shopify credentials")
+            return []
+        
         all_products = []
         
         for oem_number in oem_numbers:
             clean_oem = oem_number.strip()
             
-            # Search in title field for OEM numbers since Railway DB has no metafield columns
-            title_condition = or_(
-                ShopifyProduct.title.like(f'%{clean_oem}%'),
-                ShopifyProduct.title.like(f'%{oem_number}%'),
-                func.upper(ShopifyProduct.title).like(f'%{clean_oem.upper()}%'),
-                func.upper(ShopifyProduct.title).like(f'%{oem_number.upper()}%')
-            )
+            # Search Shopify products by title containing OEM number
+            url = f"https://{shopify_shop}.myshopify.com/admin/api/2023-10/products.json"
+            headers = {
+                'X-Shopify-Access-Token': shopify_token,
+                'Content-Type': 'application/json'
+            }
             
-            query = session.query(ShopifyProduct).filter(title_condition)
-            products = query.all()
+            # Get all active products and filter client-side for OEM matches
+            params = {
+                'limit': 250,  # Get more products to search through
+                'status': 'active'
+            }
             
-            print(f"🔍 Searching for OEM {oem_number} in product titles: found {len(products)} matches")
+            response = requests.get(url, headers=headers, params=params)
             
-            # Convert to dictionary format with real Shopify data
-            result = []
-            for product in products:
-                # Get real Shopify data via API call
-                shopify_data = get_shopify_product_data(product.id)
+            if response.status_code == 200:
+                shopify_data = response.json()
+                products = shopify_data.get('products', [])
                 
-                product_dict = {
-                    'id': str(product.id),
-                    'title': product.title,
-                    'handle': product.handle,
-                    'oem': oem_number,  # Use the searched OEM number
-                    'price': shopify_data.get('price', '0'),  # Real Shopify price
-                    'sku': shopify_data.get('sku', ''),  # Real Shopify SKU
-                    'variant_id': shopify_data.get('variant_id', ''),  # Real variant ID for cart
-                    'inventory_quantity': shopify_data.get('inventory_quantity', 0)
-                }
-                result.append(product_dict)
-            
-            all_products.extend(result)
+                print(f"🔍 Searching Shopify for OEM {oem_number}: found {len(products)} matches")
+                
+                # Filter products client-side for OEM matches and convert to our format with REAL data
+                for product in products:
+                    title = product.get('title', '').upper()
+                    
+                    # Check if OEM number appears in title (case-insensitive)
+                    if clean_oem.upper() in title or oem_number.upper() in title:
+                        variants = product.get('variants', [])
+                        if variants:
+                            first_variant = variants[0]
+                            
+                            product_dict = {
+                                'id': str(product.get('id', '')),
+                                'title': product.get('title', ''),
+                                'handle': product.get('handle', ''),
+                                'oem': oem_number,  # Use the searched OEM number
+                                'price': str(first_variant.get('price', '0')),  # REAL Shopify price
+                                'sku': first_variant.get('sku', ''),  # REAL Shopify SKU
+                                'variant_id': str(first_variant.get('id', '')),  # REAL variant ID for cart
+                                'inventory_quantity': first_variant.get('inventory_quantity', 0)
+                            }
+                            all_products.append(product_dict)
+            else:
+                print(f"❌ Shopify API error for OEM {oem_number}: {response.status_code}")
         
-        print(f"✅ Found {len(all_products)} matching Shopify products")
+        print(f"✅ Found {len(all_products)} matching Shopify products with REAL data")
         return all_products
         
     except Exception as e:
-        print(f"Error searching database: {e}")
+        print(f"Error searching Shopify: {e}")
         return []
-    finally:
-        session.close()
 
 def search_products_by_vehicle(make, model=None):
     """Search for products by vehicle make and model as fallback when OEM search fails"""
