@@ -1,9 +1,13 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, or_, func
-from sqlalchemy.ext.declarative import declarative_base
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from sqlalchemy import create_engine, text, Column, Integer, String, Text, DateTime, or_, func
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from sqlalchemy.ext.declarative import declarative_base
+import logging
+import requests
 import json
+from datetime import datetime
 
 Base = declarative_base()
 
@@ -32,6 +36,43 @@ def get_database_url():
 
 engine = create_engine(get_database_url())
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_shopify_product_data(product_id):
+    """Fetch real Shopify product data including price, SKU, variant_id and inventory"""
+    try:
+        shopify_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
+        shopify_shop = os.getenv('SHOPIFY_SHOP_NAME')
+        
+        if not shopify_token or not shopify_shop:
+            print("❌ Missing Shopify credentials")
+            return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+        
+        url = f"https://{shopify_shop}.myshopify.com/admin/api/2023-10/products/{product_id}.json"
+        headers = {
+            'X-Shopify-Access-Token': shopify_token,
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            product_data = response.json().get('product', {})
+            variants = product_data.get('variants', [])
+            
+            if variants:
+                first_variant = variants[0]
+                return {
+                    'price': str(first_variant.get('price', '0')),
+                    'sku': first_variant.get('sku', ''),
+                    'variant_id': str(first_variant.get('id', '')),
+                    'inventory_quantity': first_variant.get('inventory_quantity', 0)
+                }
+        
+        print(f"❌ Failed to fetch Shopify data for product {product_id}: {response.status_code}")
+        return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+        
+    except Exception as e:
+        print(f"❌ Error fetching Shopify data: {e}")
+        return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
 
 def init_db():
     """Initialize database tables"""
@@ -64,18 +105,21 @@ def search_products_by_oem(oem_numbers):
             
             print(f"🔍 Searching for OEM {oem_number} in product titles: found {len(products)} matches")
             
-            # Convert to dictionary format
+            # Convert to dictionary format with real Shopify data
             result = []
             for product in products:
+                # Get real Shopify data via API call
+                shopify_data = get_shopify_product_data(product.id)
+                
                 product_dict = {
                     'id': str(product.id),
                     'title': product.title,
                     'handle': product.handle,
                     'oem': oem_number,  # Use the searched OEM number
-                    'price': product.price or '0',  # Use real Shopify price
-                    'sku': product.sku or '',  # Use real Shopify SKU
-                    'variant_id': product.variant_id or '',  # Use real variant ID for cart
-                    'inventory_quantity': product.inventory_quantity or 0
+                    'price': shopify_data.get('price', '0'),  # Real Shopify price
+                    'sku': shopify_data.get('sku', ''),  # Real Shopify SKU
+                    'variant_id': shopify_data.get('variant_id', ''),  # Real variant ID for cart
+                    'inventory_quantity': shopify_data.get('inventory_quantity', 0)
                 }
                 result.append(product_dict)
             
@@ -129,10 +173,10 @@ def search_products_by_vehicle(make, model=None):
                     'title': product.title,
                     'handle': product.handle,
                     'oem': f"{make} {model or ''}".strip(),  # Use vehicle info as "OEM"
-                    'price': product.price or '0',  # Use real Shopify price
-                    'sku': product.sku or '',  # Use real Shopify SKU
-                    'variant_id': product.variant_id or '',  # Use real variant ID for cart
-                    'inventory_quantity': product.inventory_quantity or 0
+                    'price': '0',  # Default since Railway DB has no price column
+                    'sku': '',  # Default since Railway DB has no SKU column
+                    'variant_id': '',  # Default since Railway DB has no variant_id column
+                    'inventory_quantity': 1  # Assume available since Railway DB has no inventory column
                 }
                 result.append(product_dict)
             
