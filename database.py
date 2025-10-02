@@ -111,10 +111,11 @@ def search_products_by_oem(oem_numbers):
                 'Content-Type': 'application/json'
             }
             
-            # Get all active products and filter client-side for OEM matches
+            # Get all active products WITH variants data and filter client-side for OEM matches
             params = {
                 'limit': 250,  # Get more products to search through
-                'status': 'active'
+                'status': 'active',
+                'fields': 'id,title,handle,variants,metafields'  # CRITICAL: Include variants AND metafields data
             }
             
             response = requests.get(url, headers=headers, params=params, verify=False)
@@ -129,22 +130,17 @@ def search_products_by_oem(oem_numbers):
                 for product in products:
                     product_id = product.get('id')
                     
-                    # Get product metafields to check for OEM numbers
-                    metafields_url = f"https://{base_domain}/admin/api/2023-10/products/{product_id}/metafields.json"
-                    metafields_response = requests.get(metafields_url, headers=headers, verify=False)
+                    # Use metafields already included in main API response (NO separate API calls!)
+                    metafields = product.get('metafields', [])
                     
                     oem_match_found = False
-                    if metafields_response.status_code == 200:
-                        metafields_data = metafields_response.json()
-                        metafields = metafields_data.get('metafields', [])
-                        
-                        # Check if any metafield contains the OEM number
-                        for metafield in metafields:
-                            metafield_value = str(metafield.get('value', '')).upper()
-                            if clean_oem.upper() in metafield_value or oem_number.upper() in metafield_value:
-                                oem_match_found = True
-                                print(f"✅ OEM match found in metafield: {metafield.get('key')} = {metafield.get('value')}")
-                                break
+                    # Check if any metafield contains the OEM number
+                    for metafield in metafields:
+                        metafield_value = str(metafield.get('value', '')).upper()
+                        if clean_oem.upper() in metafield_value or oem_number.upper() in metafield_value:
+                            oem_match_found = True
+                            print(f"✅ OEM match found in metafield: {metafield.get('key')} = {metafield.get('value')}")
+                            break
                     
                     # Also check title as fallback
                     title = product.get('title', '').upper()
