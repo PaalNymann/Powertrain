@@ -99,7 +99,13 @@ def search_products_by_oem(oem_numbers):
             clean_oem = oem_number.strip()
             
             # Search Shopify products by title containing OEM number
-            url = f"https://{shopify_shop}.myshopify.com/admin/api/2023-10/products.json"
+            # Fix domain name - remove .myshopify.com if already present
+            if shopify_shop.endswith('.myshopify.com'):
+                base_domain = shopify_shop
+            else:
+                base_domain = f"{shopify_shop}.myshopify.com"
+            
+            url = f"https://{base_domain}/admin/api/2023-10/products.json"
             headers = {
                 'X-Shopify-Access-Token': shopify_token,
                 'Content-Type': 'application/json'
@@ -111,7 +117,7 @@ def search_products_by_oem(oem_numbers):
                 'status': 'active'
             }
             
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, verify=False)
             
             if response.status_code == 200:
                 shopify_data = response.json()
@@ -124,8 +130,8 @@ def search_products_by_oem(oem_numbers):
                     product_id = product.get('id')
                     
                     # Get product metafields to check for OEM numbers
-                    metafields_url = f"https://{shopify_shop}.myshopify.com/admin/api/2023-10/products/{product_id}/metafields.json"
-                    metafields_response = requests.get(metafields_url, headers=headers)
+                    metafields_url = f"https://{base_domain}/admin/api/2023-10/products/{product_id}/metafields.json"
+                    metafields_response = requests.get(metafields_url, headers=headers, verify=False)
                     
                     oem_match_found = False
                     if metafields_response.status_code == 200:
