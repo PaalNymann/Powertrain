@@ -117,14 +117,36 @@ def search_products_by_oem(oem_numbers):
                 shopify_data = response.json()
                 products = shopify_data.get('products', [])
                 
-                print(f"🔍 Searching Shopify for OEM {oem_number}: found {len(products)} matches")
+                print(f"🔍 Searching Shopify for OEM {oem_number}: checking {len(products)} products")
                 
-                # Filter products client-side for OEM matches and convert to our format with REAL data
+                # Filter products by checking metafields for OEM matches
                 for product in products:
-                    title = product.get('title', '').upper()
+                    product_id = product.get('id')
                     
-                    # Check if OEM number appears in title (case-insensitive)
-                    if clean_oem.upper() in title or oem_number.upper() in title:
+                    # Get product metafields to check for OEM numbers
+                    metafields_url = f"https://{shopify_shop}.myshopify.com/admin/api/2023-10/products/{product_id}/metafields.json"
+                    metafields_response = requests.get(metafields_url, headers=headers)
+                    
+                    oem_match_found = False
+                    if metafields_response.status_code == 200:
+                        metafields_data = metafields_response.json()
+                        metafields = metafields_data.get('metafields', [])
+                        
+                        # Check if any metafield contains the OEM number
+                        for metafield in metafields:
+                            metafield_value = str(metafield.get('value', '')).upper()
+                            if clean_oem.upper() in metafield_value or oem_number.upper() in metafield_value:
+                                oem_match_found = True
+                                print(f"✅ OEM match found in metafield: {metafield.get('key')} = {metafield.get('value')}")
+                                break
+                    
+                    # Also check title as fallback
+                    title = product.get('title', '').upper()
+                    if not oem_match_found and (clean_oem.upper() in title or oem_number.upper() in title):
+                        oem_match_found = True
+                        print(f"✅ OEM match found in title: {product.get('title')}")
+                    
+                    if oem_match_found:
                         variants = product.get('variants', [])
                         if variants:
                             first_variant = variants[0]
