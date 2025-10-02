@@ -72,8 +72,10 @@ def search_products_by_oem(oem_numbers):
                     'title': product.title,
                     'handle': product.handle,
                     'oem': oem_number,  # Use the searched OEM number
-                    'price': '0',  # Default since Railway DB has no price column
-                    'inventory_quantity': 1  # Assume available since Railway DB has no inventory column
+                    'price': product.price or '0',  # Use real Shopify price
+                    'sku': product.sku or '',  # Use real Shopify SKU
+                    'variant_id': product.variant_id or '',  # Use real variant ID for cart
+                    'inventory_quantity': product.inventory_quantity or 0
                 }
                 result.append(product_dict)
             
@@ -127,8 +129,10 @@ def search_products_by_vehicle(make, model=None):
                     'title': product.title,
                     'handle': product.handle,
                     'oem': f"{make} {model or ''}".strip(),  # Use vehicle info as "OEM"
-                    'price': '0',
-                    'inventory_quantity': 1
+                    'price': product.price or '0',  # Use real Shopify price
+                    'sku': product.sku or '',  # Use real Shopify SKU
+                    'variant_id': product.variant_id or '',  # Use real variant ID for cart
+                    'inventory_quantity': product.inventory_quantity or 0
                 }
                 result.append(product_dict)
             
