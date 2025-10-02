@@ -84,7 +84,7 @@ def init_db():
         raise
 
 def search_products_by_oem(oem_numbers):
-    """Search for products by OEM numbers directly in Shopify API"""
+    """Search for products by OEM numbers in Shopify API using SINGLE bulk call and title matching"""
     try:
         shopify_token = os.getenv('SHOPIFY_TOKEN')
         shopify_shop = os.getenv('SHOPIFY_DOMAIN')
@@ -93,85 +93,77 @@ def search_products_by_oem(oem_numbers):
             print("❌ Missing Shopify credentials")
             return []
         
-        all_products = []
+        # Fix domain name - remove .myshopify.com if already present
+        if shopify_shop.endswith('.myshopify.com'):
+            base_domain = shopify_shop
+        else:
+            base_domain = f"{shopify_shop}.myshopify.com"
         
-        for oem_number in oem_numbers:
-            clean_oem = oem_number.strip()
-            
-            # Search Shopify products by title containing OEM number
-            # Fix domain name - remove .myshopify.com if already present
-            if shopify_shop.endswith('.myshopify.com'):
-                base_domain = shopify_shop
-            else:
-                base_domain = f"{shopify_shop}.myshopify.com"
-            
-            url = f"https://{base_domain}/admin/api/2023-10/products.json"
-            headers = {
-                'X-Shopify-Access-Token': shopify_token,
-                'Content-Type': 'application/json'
-            }
-            
-            # Get all active products WITH variants data and filter client-side for OEM matches
-            params = {
-                'limit': 250,  # Get more products to search through
-                'status': 'active',
-                'fields': 'id,title,handle,variants,metafields'  # CRITICAL: Include variants AND metafields data
-            }
-            
-            response = requests.get(url, headers=headers, params=params, verify=False)
-            
-            if response.status_code == 200:
-                shopify_data = response.json()
-                products = shopify_data.get('products', [])
-                
-                print(f"🔍 Searching Shopify for OEM {oem_number}: checking {len(products)} products")
-                
-                # Filter products by checking metafields for OEM matches
-                for product in products:
-                    product_id = product.get('id')
-                    
-                    # Use metafields already included in main API response (NO separate API calls!)
-                    metafields = product.get('metafields', [])
-                    
-                    oem_match_found = False
-                    # Check if any metafield contains the OEM number
-                    for metafield in metafields:
-                        metafield_value = str(metafield.get('value', '')).upper()
-                        if clean_oem.upper() in metafield_value or oem_number.upper() in metafield_value:
-                            oem_match_found = True
-                            print(f"✅ OEM match found in metafield: {metafield.get('key')} = {metafield.get('value')}")
-                            break
-                    
-                    # Also check title as fallback
-                    title = product.get('title', '').upper()
-                    if not oem_match_found and (clean_oem.upper() in title or oem_number.upper() in title):
-                        oem_match_found = True
-                        print(f"✅ OEM match found in title: {product.get('title')}")
-                    
-                    if oem_match_found:
-                        variants = product.get('variants', [])
-                        if variants:
-                            first_variant = variants[0]
-                            
-                            product_dict = {
-                                'id': str(product.get('id', '')),
-                                'title': product.get('title', ''),
-                                'handle': product.get('handle', ''),
-                                'oem': oem_number,  # Use the searched OEM number
-                                'price': str(first_variant.get('price', '0')),  # REAL Shopify price
-                                'sku': first_variant.get('sku', ''),  # REAL Shopify SKU
-                                'variant_id': str(first_variant.get('id', '')),  # REAL variant ID for cart
-                                'inventory_quantity': first_variant.get('inventory_quantity', 0)
-                            }
-                            all_products.append(product_dict)
-            else:
-                print(f"❌ Shopify API error for OEM {oem_number}: {response.status_code}")
+        print(f"🔍 Making SINGLE Shopify API call for {len(oem_numbers)} OEM numbers")
         
-        print(f"✅ Found {len(all_products)} matching Shopify products with REAL data")
-        return all_products
+        url = f"https://{base_domain}/admin/api/2023-10/products.json"
+        headers = {
+            'X-Shopify-Access-Token': shopify_token,
+            'Content-Type': 'application/json'
+        }
+        
+        # Get ALL active products with variants in SINGLE API call
+        params = {
+            'limit': 250,  # Get more products to search through
+            'status': 'active',
+            'fields': 'id,title,handle,variants,body_html'  # Include body_html for OEM matching
+        }
+        
+        response = requests.get(url, headers=headers, params=params, verify=False)
+        
+        if response.status_code != 200:
+            print(f"❌ Shopify API error: {response.status_code}")
+            return []
+        
+        shopify_data = response.json()
+        products = shopify_data.get('products', [])
+        
+        print(f"🔍 Got {len(products)} products from Shopify, searching for OEM matches")
+        
+        matching_products = []
+        
+        # Search through all products for ANY OEM number match
+        for product in products:
+            title = product.get('title', '').upper()
+            body_html = product.get('body_html', '').upper() if product.get('body_html') else ''
+            
+            # Check if ANY OEM number is in title or description
+            for oem_number in oem_numbers:
+                clean_oem = oem_number.replace('-', '').replace(' ', '').strip().upper()
+                oem_upper = oem_number.upper()
+                
+                if (oem_upper in title or clean_oem in title or 
+                    oem_upper in body_html or clean_oem in body_html):
+                    
+                    # Get first variant for pricing info
+                    variants = product.get('variants', [])
+                    if variants:
+                        first_variant = variants[0]
+                        
+                        product_dict = {
+                            'id': str(product.get('id', '')),
+                            'title': product.get('title', ''),
+                            'handle': product.get('handle', ''),
+                            'oem': oem_number,  # Use the matched OEM number
+                            'price': str(first_variant.get('price', '0')),  # REAL Shopify price
+                            'sku': first_variant.get('sku', ''),  # REAL Shopify SKU
+                            'variant_id': str(first_variant.get('id', '')),  # REAL variant ID
+                            'inventory_quantity': first_variant.get('inventory_quantity', 0)
+                        }
+                        matching_products.append(product_dict)
+                        print(f"✅ Found match: {product.get('title')} - OEM: {oem_number} - Price: {first_variant.get('price')} NOK")
+                        break  # Found match for this product, move to next product
+        
+        print(f"✅ Found {len(matching_products)} matching Shopify products with REAL data")
+        return matching_products
         
     except Exception as e:
-        print(f"Error searching Shopify: {e}")
+        print(f"❌ Error searching Shopify products: {e}")
         return []
 
 def search_products_by_vehicle(make, model=None):
