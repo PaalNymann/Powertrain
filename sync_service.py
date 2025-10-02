@@ -652,10 +652,21 @@ def sync_to_railway_db(product_data, shopify_product_id, sku, group_name):
             db.execute(text("""
                 DELETE FROM product_metafields 
                 WHERE product_id = :product_id 
-                AND key IN ('original_nummer', 'original-nummer')
+                AND key IN ('original_nummer', 'original-nummer', 'oem')
             """), {"product_id": str(shopify_product_id)})
             
-            # Insert new OEM metafields
+            # Parse comma-separated OEM list from Shopify
+            oem_list = []
+            if ',' in original_nummer:
+                # Split comma-separated OEMs and clean them
+                oem_list = [oem.strip() for oem in original_nummer.split(',') if oem.strip()]
+            else:
+                # Single OEM
+                oem_list = [original_nummer.strip()] if original_nummer.strip() else []
+            
+            print(f"🔍 Syncing {len(oem_list)} OEMs for {sku}: {oem_list[:3]}{'...' if len(oem_list) > 3 else ''}")
+            
+            # Insert new OEM metafields - CREATE SEPARATE ENTRY FOR EACH OEM
             metafield_query = text("""
                 INSERT INTO product_metafields (
                     id, product_id, namespace, key, value, created_at
@@ -664,7 +675,20 @@ def sync_to_railway_db(product_data, shopify_product_id, sku, group_name):
                 )
             """)
             
-            # Insert both original_nummer and original-nummer for compatibility
+            # Insert individual OEM entries for search compatibility
+            for i, oem in enumerate(oem_list):
+                if oem:  # Skip empty OEMs
+                    # Use 'oem' key for individual entries (matches search logic)
+                    metafield_id = f"{shopify_product_id}_oem_{i}"
+                    db.execute(metafield_query, {
+                        "id": metafield_id,
+                        "product_id": str(shopify_product_id),
+                        "namespace": "custom",
+                        "key": "oem",  # Use 'oem' key for search compatibility
+                        "value": oem
+                    })
+            
+            # Also store the full comma-separated list for compatibility
             for key in ['original_nummer', 'original-nummer']:
                 metafield_id = f"{shopify_product_id}_{key}"
                 db.execute(metafield_query, {

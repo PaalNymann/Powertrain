@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os
 import requests
 from dotenv import load_dotenv
-from database import init_db, search_products_by_oem, update_shopify_cache
+from database import init_db, search_products_by_oem, search_products_by_vehicle, update_shopify_cache
 from svv_client import hent_kjoretoydata
 from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
 
@@ -243,6 +243,18 @@ def car_parts_search():
         
         # Use new function signature that takes list of OEM numbers
         all_products = search_products_by_oem(oem_numbers)
+        
+        # Step 3b: Fallback search by vehicle make/model if no OEM matches
+        if not all_products and vehicle_info:
+            print(f"🔄 Step 3b: No OEM matches found, trying fallback search by vehicle make/model")
+            make = vehicle_info.get('make', '').upper()
+            model = vehicle_info.get('model', '').upper()
+            
+            if make:
+                # Search for products containing the vehicle make
+                fallback_products = search_products_by_vehicle(make, model)
+                all_products.extend(fallback_products)
+                print(f"🎯 Fallback search found {len(fallback_products)} products for {make} {model}")
         
         # Remove duplicates
         unique_products = []

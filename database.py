@@ -27,8 +27,8 @@ def get_database_url():
     elif database_url and database_url.startswith('sqlite://'):
         return database_url
     else:
-        # Always use SQLite locally
-        return 'sqlite:///powertrain.db'
+        # Use root database that contains the products
+        return 'sqlite:////Users/nyman/powertrain_system/powertrain.db'
 
 engine = create_engine(get_database_url())
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -88,6 +88,60 @@ def search_products_by_oem(oem_numbers):
     finally:
         session.close()
 
+def search_products_by_vehicle(make, model=None):
+    """Search for products by vehicle make and model as fallback when OEM search fails"""
+    session = SessionLocal()
+    try:
+        # Build search conditions for vehicle make/model
+        conditions = []
+        
+        # Search for make (required)
+        if make:
+            make_condition = func.upper(ShopifyProduct.title).like(f'%{make.upper()}%')
+            conditions.append(make_condition)
+        
+        # Add model condition if provided
+        if model and model.strip():
+            model_condition = func.upper(ShopifyProduct.title).like(f'%{model.upper()}%')
+            conditions.append(model_condition)
+        
+        # Also search for drivaksel/aksel products specifically
+        product_type_condition = or_(
+            func.upper(ShopifyProduct.title).like('%DRIVAKSEL%'),
+            func.upper(ShopifyProduct.title).like('%AKSEL%')
+        )
+        conditions.append(product_type_condition)
+        
+        # Combine all conditions
+        if conditions:
+            query = session.query(ShopifyProduct).filter(*conditions)
+            products = query.limit(20).all()  # Limit to prevent too many results
+            
+            print(f"🔍 Vehicle search for {make} {model or ''}: found {len(products)} matches")
+            
+            # Convert to dictionary format
+            result = []
+            for product in products:
+                product_dict = {
+                    'id': str(product.id),
+                    'title': product.title,
+                    'handle': product.handle,
+                    'oem': f"{make} {model or ''}".strip(),  # Use vehicle info as "OEM"
+                    'price': '0',
+                    'inventory_quantity': 1
+                }
+                result.append(product_dict)
+            
+            return result
+        else:
+            return []
+        
+    except Exception as e:
+        print(f"Error searching by vehicle: {e}")
+        return []
+    finally:
+        session.close()
+
 def update_shopify_cache(products_data):
     """Update Shopify product cache in database"""
     session = SessionLocal()
@@ -99,27 +153,27 @@ def update_shopify_cache(products_data):
             ).first()
             
             if existing_product:
-                # Update existing product
+                # Update existing product - only use columns that exist in Railway DB schema
                 existing_product.title = product_data.get('title', '')
                 existing_product.handle = product_data.get('handle', '')
-                existing_product.oem_metafield = product_data.get('oem_metafield', '')
-                existing_product.original_nummer_metafield = product_data.get('original_nummer_metafield', '')
-                existing_product.number_metafield = product_data.get('number_metafield', '')
                 existing_product.price = product_data.get('variants', [{}])[0].get('price', '') if product_data.get('variants') else ''
                 existing_product.updated_at = datetime.utcnow()
                 
-                # Update metafields if available
+                # Store OEM numbers in title for searchability since Railway DB has no metafield columns
+                oem_info = []
                 if 'metafields' in product_data:
                     for metafield in product_data['metafields']:
                         key = metafield.get('key', '')
                         value = metafield.get('value', '')
                         
-                        if key == 'original_nummer':
-                            existing_product.original_nummer_metafield = value
-                        elif key == 'oem':
-                            existing_product.oem_metafield = value
-                        elif key == 'number':
-                            existing_product.number_metafield = value
+                        if key in ['original_nummer', 'oem', 'number'] and value:
+                            oem_info.append(value)
+                
+                # Append OEM info to title if not already present
+                if oem_info:
+                    oem_string = ' '.join(oem_info)
+                    if oem_string not in existing_product.title:
+                        existing_product.title = f"{existing_product.title} {oem_string}"
                 
                 # Update inventory
                 if 'variants' in product_data and product_data['variants']:
@@ -130,27 +184,29 @@ def update_shopify_cache(products_data):
                     existing_product.inventory_quantity = total_inventory
                     
             else:
-                # Create new product
-                new_product = ShopifyProduct(
-                    title=product_data.get('title', ''),
-                    handle=product_data.get('handle', ''),
-                    oem_metafield=product_data.get('oem_metafield', ''),
-                    original_nummer_metafield=product_data.get('original_nummer_metafield', ''),
-                    number_metafield=product_data.get('number_metafield', '')
-                )
+                # Create new product - only use columns that exist in Railway DB schema
+                title = product_data.get('title', '')
                 
-                # Set metafields if available
+                # Extract OEM info from metafields and append to title for searchability
+                oem_info = []
                 if 'metafields' in product_data:
                     for metafield in product_data['metafields']:
                         key = metafield.get('key', '')
                         value = metafield.get('value', '')
                         
-                        if key == 'original_nummer':
-                            new_product.original_nummer_metafield = value
-                        elif key == 'oem':
-                            new_product.oem_metafield = value
-                        elif key == 'number':
-                            new_product.number_metafield = value
+                        if key in ['original_nummer', 'oem', 'number'] and value:
+                            oem_info.append(value)
+                
+                # Append OEM info to title for searchability
+                if oem_info:
+                    oem_string = ' '.join(oem_info)
+                    if oem_string not in title:
+                        title = f"{title} {oem_string}"
+                
+                new_product = ShopifyProduct(
+                    title=title,
+                    handle=product_data.get('handle', '')
+                )
                 
                 # Set inventory
                 if 'variants' in product_data and product_data['variants']:

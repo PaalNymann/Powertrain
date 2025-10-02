@@ -140,76 +140,79 @@ def _discover_shaft_category_ids(vehicle_id: int) -> list[int]:
         return []
 
 # --- Core API Functions ---
-def get_vehicle_id_from_vin(vin: str) -> Optional[int]:
-    """Get TecDoc vehicle ID from VIN using RapidAPI VIN Decoder with bypass for known VINs."""
+def get_vehicle_id_from_vin(vin_or_vehicle_info) -> Optional[int]:
+    """Get TecDoc vehicle ID from VIN using RapidAPI VIN Decoder with TecDoc support."""
     
-    # BYPASS: Known VIN mappings when VIN decoder API is down
-    KNOWN_VIN_MAPPINGS = {
-        'JN1TENT30U0217281': 15234,  # 2006 Nissan X-Trail (ZT41818)
-    }
-    
-    # DIRECT OEM MAPPING: For VINs where we know the correct OEMs from TecDoc catalog
-    KNOWN_VIN_OEMS = {
-        'JN1TENT30U0217281': ['370008H310', '370008H510', '370008H800', '39600JD60A', '39600JD60B', '39100JG72B'],  # 2006 Nissan X-Trail
-    }
-    
-    # Check if we have a known mapping first
-    if vin in KNOWN_VIN_MAPPINGS:
-        vehicle_id = KNOWN_VIN_MAPPINGS[vin]
-        print(f"✅ VIN {vin} mapped via BYPASS to TecDoc vehicleId: {vehicle_id}")
-        return vehicle_id
-    
-    if not vin:
+    if not vin_or_vehicle_info:
         return None
     
-    print(f"🔍 Finding vehicle ID for VIN: {vin}")
+    print(f"🔍 Finding vehicle ID for: {vin_or_vehicle_info}")
     
     try:
-        # Use the working vehicle search endpoint
-        url = f"{CATALOG_BASE_URL}/vehicles/search"
-        payload = f"langId={LANG_ID}&countryId={COUNTRY_ID}&typeId={TYPE_ID}&searchQuery={vin}"
-        
-        response = requests.post(url, headers=CATALOG_HEADERS, data=payload, timeout=10)
-        
-        if response.status_code == 200:
-            vehicles = response.json()
+        # If we have a VIN string, use VIN Decoder API
+        if isinstance(vin_or_vehicle_info, str) and len(vin_or_vehicle_info) == 17:
+            vin = vin_or_vehicle_info
+            print(f"📡 Using VIN Decoder API for VIN: {vin}")
             
-            if isinstance(vehicles, list) and vehicles:
-                vehicle = vehicles[0]  # Take first match
-                vehicle_id = vehicle.get('vehicleId')
-                make = vehicle.get('make', 'Unknown')
-                model = vehicle.get('model', 'Unknown')
-                year = vehicle.get('year', 'Unknown')
+            # Use correct VIN Decoder endpoint with TecDoc support
+            VIN_DECODER_API_KEY = os.getenv("VIN_DECODER_API_KEY")
+            if not VIN_DECODER_API_KEY:
+                print("❌ VIN_DECODER_API_KEY not found in environment")
+                return None
+            
+            url = f"https://vin-decoder-support-tecdoc-catalog.p.rapidapi.com/?vin={vin}&country=NO"
+            
+            headers = {
+                'x-rapidapi-host': 'vin-decoder-support-tecdoc-catalog.p.rapidapi.com',
+                'x-rapidapi-key': VIN_DECODER_API_KEY
+            }
+            
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
                 
-                if vehicle_id:
-                    print(f"✅ Found vehicle ID {vehicle_id} for {make} {model} {year}")
-                    return int(vehicle_id)
+                if data.get('error') == False and 'data' in data:
+                    vehicle_data = data['data']
+                    
+                    # Extract TecDoc Vehicle ID from k_type or id_version
+                    vehicle_id = (vehicle_data.get('AWN_k_type') or 
+                                 vehicle_data.get('AWN_id_version') or
+                                 vehicle_data.get('AWN_tecdoc_modele_id'))
+                    
+                    if vehicle_id and vehicle_id != 'INCONNU':
+                        make = vehicle_data.get('AWN_marque', 'Unknown')
+                        model = vehicle_data.get('AWN_modele', 'Unknown')
+                        year = vehicle_data.get('AWN_annee_de_debut_modele', 'Unknown')
+                        
+                        print(f"✅ Found TecDoc Vehicle ID {vehicle_id} for {make} {model} {year}")
+                        return int(vehicle_id)
+                    else:
+                        print(f"⚠️ No valid Vehicle ID in VIN Decoder response")
+                        return None
+            else:
+                print(f"⚠️ VIN Decoder failed: {response.status_code}")
+                return None
         
-        print(f"⚠️ Vehicle search failed for VIN {vin}: {response.status_code}")
+        # Fallback: if vehicle info dict, extract VIN if available
+        elif isinstance(vin_or_vehicle_info, dict):
+            vin = vin_or_vehicle_info.get('vin')
+            if vin:
+                return get_vehicle_id_from_vin(vin)
+            else:
+                print("⚠️ No VIN found in vehicle info dict")
+                return None
+        
         return None
         
     except Exception as e:
-        print(f"❌ Vehicle search error for VIN {vin}: {e}")
+        print(f"❌ Vehicle ID lookup error: {e}")
         return None
 
 def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
     """Main workflow to get OEM numbers for a given VIN."""
     
-    # DIRECT OEM MAPPING: For VINs where we know the correct OEMs from TecDoc catalog
-    KNOWN_VIN_OEMS = {
-        'JN1TENT30U0217281': ['370008H310', '370008H510', '370008H800', '39600JD60A', '39600JD60B', '39100JG72B'],  # 2006 Nissan X-Trail
-    }
-    
-    # Check if we have direct OEM mapping first (bypasses API entirely)
-    if vin in KNOWN_VIN_OEMS:
-        oems = KNOWN_VIN_OEMS[vin]
-        print(f"✅ VIN {vin} mapped via DIRECT OEM MAPPING to {len(oems)} OEMs: {oems}")
-        # Cache the result for future use
-        try:
-            upsert_vin_oem_cache(vin, oems)
-        except Exception as e:
-            print(f"⚠️ Failed to cache direct OEM mapping: {e}")
-        return oems
+    # NO HARDCODED OEM MAPPINGS - Use dynamic TecDoc API lookup for all VINs
     
     # 0) Persistent VIN cache read (DB). If we have fresh OEMs, use them immediately.
     try:
