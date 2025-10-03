@@ -148,6 +148,39 @@
 <script>
   const API_BASE = 'https://web-production-0809b.up.railway.app';
   
+  // Normalize a single field (handles SVV objects like {verdi, enhet})
+  function normalizeField(v) {
+    try {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (typeof v === 'object') {
+        const candidates = [
+          () => (v.verdi !== undefined && v.enhet) ? `${v.verdi} ${v.enhet}` : '',
+          () => (v.value !== undefined && v.unit) ? `${v.value} ${v.unit}` : '',
+          () => (v.navn || v.name || v.type || v.kode || v.code || v.betegnelse || v.title || v.text) || '',
+          () => {
+            for (const k of Object.keys(v)) {
+              const val = v[k];
+              if (val === null || val === undefined) continue;
+              if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val);
+            }
+            return '';
+          }
+        ];
+        for (const pick of candidates) {
+          const s = pick();
+          if (s && String(s).trim() !== '') return String(s);
+        }
+        const json = JSON.stringify(v);
+        return json.length <= 60 ? json : '';
+      }
+      return String(v);
+    } catch { return ''; }
+  }
+  function normalizeList(arr) {
+    return arr.map(normalizeField).map(s => String(s).trim()).filter(Boolean).join(' · ');
+  }
+  
   async function performSearch() {
     const searchInput = document.getElementById('searchInput').value.trim();
     const resultsDiv = document.getElementById('searchResults');
@@ -193,25 +226,39 @@
       
       if (data.vehicle_info) {
         const vi = data.vehicle_info || {};
-        const chassis = vi.vin || vi.chassis || vi.chassisnr || '';
-        const drivetrain = vi.drivetrain || vi.drive || vi.hjuldrift || '';
-        const gearbox = vi.gearbox || vi.transmission || vi.girkasse || '';
-        const engineCode = vi.engine || vi.engine_code || vi.motor || '';
+        const make = vi.make || '';
+        const model = vi.model || '';
+        const year = vi.year || vi.reg_year || '';
+        const vin = vi.vin || vi.chassis || vi.chassisnr || '';
+        const drivetrain = vi.drivetrain || pickFirstFrom(vi, [
+          ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'drivverk', 'hjuldrift'],
+          ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'drivverk', 'hjuldrift'],
+        ]);
+        const axles = normalizeField(vi.antallAksler);
+        const drivenAxles = normalizeField(vi.antallAkslerMedDrift);
         const fuel = vi.fuel || vi.fuel_type || '';
         const displacement = vi.displacement || vi.engine_size || '';
         const power = vi.power || vi.power_kw || vi.power_hp || '';
+        const effekt = normalizeField(vi.motorytelseEffekt);
+        const motorStr = [normalizeField(vi.motor), displacement, fuel, power].filter(Boolean).join(' · ');
+        const gearbox = vi.gearbox || vi.transmission || vi.girkasse || '';
 
         // Build details rows only for present values
         const row = (label, value) => value ? `<p><strong>${label}:</strong> ${value}</p>` : '';
 
         html += `
           <div class="vehicle-info">
-            <h3>${vi.make || ''} ${vi.model || ''}</h3>
-            ${row('År', vi.year || vi.reg_year || '')}
-            ${row('Chassisnr', chassis)}
+            <h3>${[make, model].filter(Boolean).join(' ')}</h3>
+            ${row('År', year)}
+            ${row('Chassisnr', vin)}
+            ${row('Antall aksler', axles || 'Ikke oppgitt')}
+            ${row('Antall aksler med drift', drivenAxles || 'Ikke oppgitt')}
+            ${row('Drivstoff', fuel || 'Ikke oppgitt')}
+            ${row('Motorytelse/effekt', effekt || 'Ikke oppgitt')}
+            ${row('Slagvolum', displacement || 'Ikke oppgitt')}
             ${row('Drivlinje', drivetrain)}
             ${row('Girkasse', gearbox)}
-            ${row('Motor', [engineCode, displacement, fuel, power].filter(Boolean).join(' · '))}
+            ${row('Motor', motorStr)}
           </div>
         `;
       }
