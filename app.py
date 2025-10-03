@@ -53,7 +53,10 @@ def extract_vehicle_info(vehicle_data):
         teknisk_godkjenning = godkjenning.get('tekniskGodkjenning', {})
         tekniske_data = teknisk_godkjenning.get('tekniskeData', {})
         generelt = tekniske_data.get('generelt', {})
-        
+        motor_og_drivverk = tekniske_data.get('motorOgDrivverk', {}) or tekniske_data.get('motorogdrivverk', {})
+        motor = motor_og_drivverk.get('motor', {}) if isinstance(motor_og_drivverk, dict) else {}
+        drivverk = motor_og_drivverk.get('drivverk', {}) if isinstance(motor_og_drivverk, dict) else {}
+
         # Extract make from merke array
         merke_liste = generelt.get('merke', [])
         make = merke_liste[0].get('merke', '').upper() if merke_liste else ''
@@ -66,11 +69,63 @@ def extract_vehicle_info(vehicle_data):
         forstegangsregistrering = kjoretoydata.get('forstegangsregistrering', {})
         registrert_dato = forstegangsregistrering.get('registrertForstegangNorgeDato', '')
         year = registrert_dato.split('-')[0] if registrert_dato else ''
-        
+
+        # Tolerant helpers
+        def pick_first(dct, paths):
+            for p in paths:
+                try:
+                    cur = dct
+                    for key in p:
+                        if isinstance(cur, list):
+                            # take first element if list
+                            cur = cur[0] if cur else None
+                        if cur is None:
+                            break
+                        cur = cur.get(key) if isinstance(cur, dict) else None
+                    if cur is not None and str(cur).strip() != '':
+                        return cur
+                except Exception:
+                    continue
+            return ''
+
+        # VIN / chassis number: common placements
+        vin = pick_first(kjoretoydata, [
+            ['identifikasjon', 'understellsnummer'],
+            ['identifikasjon', 'identifikasjonsnummer'],
+            ['kjennemerke', 'understellsnummer'],
+        ])
+
+        # Drivetrain (hjuldrift)
+        drivetrain = pick_first(drivverk, [
+            ['hjuldrift'], ['drivhjul'], ['drivverk'],
+        ]) or pick_first(tekniske_data, [['drivverk','hjuldrift']])
+
+        # Gearbox / transmission
+        gearbox = pick_first(drivverk, [
+            ['girkasse'], ['girtype'], ['girutveksling'], ['automatManuell']
+        ]) or pick_first(tekniske_data, [['drivverk','girkasse']])
+
+        # Engine details
+        engine_code = pick_first(motor, [
+            ['motorkode'], ['motorKode'], ['motorbetegnelse']
+        ])
+        fuel = pick_first(motor, [['drivstoff'], ['drivstofftype']])
+        displacement = pick_first(motor, [['slagvolum'], ['motorvolum']])
+        power_kw = pick_first(motor, [['maksEffekt'], ['maksEffektKW'], ['effektKW']])
+        power_hp = pick_first(motor, [['maksEffektHK'], ['effektHK']])
+        power = f"{power_kw} kW" if power_kw else (f"{power_hp} hk" if power_hp else '')
+
         return {
             'make': make,
             'model': model,
-            'year': year
+            'year': year,
+            'vin': vin or '',
+            'drivetrain': drivetrain or '',
+            'gearbox': gearbox or '',
+            'engine': engine_code or '',
+            'fuel': fuel or '',
+            'displacement': displacement or '',
+            'power': power or ''
         }
     except Exception as e:
         print(f"❌ Error extracting vehicle info: {e}")
@@ -209,6 +264,76 @@ def car_parts_search():
         # Extract vehicle info
         vehicle_info = extract_vehicle_info(vehicle_data)
         print(f"🔍 Extracted vehicle info: {vehicle_info}")
+
+        # Augment vehicle_info with SVV details (non-breaking): VIN, drivetrain, gearbox, engine, fuel, displacement, power
+        try:
+            def _get_path(obj, path):
+                try:
+                    cur = obj
+                    for key in path:
+                        if isinstance(cur, list):
+                            cur = cur[key]
+                        else:
+                            cur = cur.get(key)
+                        if cur is None:
+                            return ''
+                    return cur if cur is not None else ''
+                except Exception:
+                    return ''
+
+            def _pick_first(obj, paths):
+                for p in paths:
+                    v = _get_path(obj, p)
+                    if v not in ('', None):
+                        return v
+                return ''
+
+            vd = vehicle_data or {}
+            # Common SVV paths
+            vin = vehicle_info.get('vin') or _pick_first(vd, [
+                ['kjoretoydataListe', 0, 'kjoretoyId', 'understellsnummer'],
+                ['kjoretoydataListe', 0, 'identifikasjon', 'understellsnummer'],
+                ['kjoretoydataListe', 0, 'identifikasjon', 'identifikasjonsnummer'],
+            ])
+            drivetrain = vehicle_info.get('drivetrain') or _pick_first(vd, [
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'drivverk', 'hjuldrift'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'drivverk', 'hjuldrift'],
+            ])
+            gearbox = vehicle_info.get('gearbox') or _pick_first(vd, [
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'drivverk', 'girkasse'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'drivverk', 'girkasse'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'drivverk', 'girtype'],
+            ])
+            engine_code = vehicle_info.get('engine') or _pick_first(vd, [
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'motor', 'motorkode'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motor', 'motorkode'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'motor', 'motorbetegnelse'],
+            ])
+            fuel = vehicle_info.get('fuel') or _pick_first(vd, [
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'motor', 'drivstoff'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motor', 'drivstoff'],
+            ])
+            displacement = vehicle_info.get('displacement') or _pick_first(vd, [
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'motor', 'slagvolum'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motor', 'slagvolum'],
+            ])
+            power = vehicle_info.get('power') or (_pick_first(vd, [
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motorOgDrivverk', 'motor', 'maksEffekt'],
+                ['kjoretoydataListe', 0, 'godkjenning', 'tekniskGodkjenning', 'tekniskeData', 'motor', 'maksEffekt'],
+            ]) or '')
+
+            # Attach to vehicle_info (non-breaking for frontend)
+            vehicle_info.update({
+                'vin': vin or '',
+                'drivetrain': drivetrain or '',
+                'gearbox': gearbox or '',
+                'engine': engine_code or '',
+                'fuel': fuel or '',
+                'displacement': displacement or '',
+                'power': power or ''
+            })
+        except Exception:
+            pass
         
         if not vehicle_info:
             return jsonify({'error': 'Could not extract vehicle info'}), 500

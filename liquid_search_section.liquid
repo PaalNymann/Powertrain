@@ -192,10 +192,26 @@
       let html = '';
       
       if (data.vehicle_info) {
+        const vi = data.vehicle_info || {};
+        const chassis = vi.vin || vi.chassis || vi.chassisnr || '';
+        const drivetrain = vi.drivetrain || vi.drive || vi.hjuldrift || '';
+        const gearbox = vi.gearbox || vi.transmission || vi.girkasse || '';
+        const engineCode = vi.engine || vi.engine_code || vi.motor || '';
+        const fuel = vi.fuel || vi.fuel_type || '';
+        const displacement = vi.displacement || vi.engine_size || '';
+        const power = vi.power || vi.power_kw || vi.power_hp || '';
+
+        // Build details rows only for present values
+        const row = (label, value) => value ? `<p><strong>${label}:</strong> ${value}</p>` : '';
+
         html += `
           <div class="vehicle-info">
-            <h3>${data.vehicle_info.make} ${data.vehicle_info.model}</h3>
-            <p><strong>År:</strong> ${data.vehicle_info.year}</p>
+            <h3>${vi.make || ''} ${vi.model || ''}</h3>
+            ${row('År', vi.year || vi.reg_year || '')}
+            ${row('Chassisnr', chassis)}
+            ${row('Drivlinje', drivetrain)}
+            ${row('Girkasse', gearbox)}
+            ${row('Motor', [engineCode, displacement, fuel, power].filter(Boolean).join(' · '))}
           </div>
         `;
       }
