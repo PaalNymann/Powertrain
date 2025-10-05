@@ -369,25 +369,9 @@ def car_parts_search():
         # Use new function signature that takes list of OEM numbers
         all_products = search_products_by_oem(oem_numbers)
         
-        # Step 3b: Fallback search by vehicle make/model if no OEM matches
-        if not all_products and vehicle_info:
-            print(f"🔄 Step 3b: No OEM matches found, trying fallback search by vehicle make/model")
-            make = vehicle_info.get('make', '').upper()
-            model = vehicle_info.get('model', '').upper()
-            
-            if make:
-                # Search for products containing the vehicle make
-                fallback_products = search_products_by_vehicle(make, model)
-                all_products.extend(fallback_products)
-                print(f"🎯 Fallback search found {len(fallback_products)} products for {make} {model}")
-        
-        # Remove duplicates
-        unique_products = []
-        seen_ids = set()
-        for product in all_products:
-            if product['id'] not in seen_ids:
-                unique_products.append(product)
-                seen_ids.add(product['id'])
+        # No fallback search - only show products that match OEM numbers
+        # This ensures we only show parts that actually fit the vehicle
+        unique_products = all_products  # Already deduplicated by SKU in search_products_by_oem
         
         print(f"✅ Found {len(unique_products)} matching Shopify products")
         

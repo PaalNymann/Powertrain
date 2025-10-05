@@ -176,11 +176,11 @@ def get_shopify_product_data(product_id):
         return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
 
 def search_products_by_oem(oem_numbers):
-    """Search for products by OEM numbers in Railway DB - returns unique products with price and SKU"""
+    """Search for products by OEM numbers in Railway DB metafields - returns unique products with price and SKU"""
     try:
         session = SessionLocal()
         
-        print(f"🔍 Searching Railway DB for {len(oem_numbers)} OEM numbers")
+        print(f"🔍 Searching Railway DB metafields for {len(oem_numbers)} OEM numbers")
         
         matching_products = []
         seen_skus = set()  # Track SKUs to avoid duplicates
@@ -189,23 +189,41 @@ def search_products_by_oem(oem_numbers):
         normalized_oems = []
         for oem in oem_numbers:
             # Add both original and normalized versions
-            normalized_oems.append(oem)
+            normalized_oems.append(oem.upper())
             clean = oem.replace('-', '').replace(' ', '').strip().upper()
-            if clean != oem:
+            if clean != oem.upper():
                 normalized_oems.append(clean)
         
-        # Search in Railway DB products table
+        # Search in product_metafields table for OEM numbers
         from sqlalchemy import or_, func
         
-        # Build OR conditions for all OEM variations
+        # Build OR conditions for all OEM variations in metafields
         oem_conditions = []
         for oem in normalized_oems[:20]:  # Limit to avoid too complex query
-            oem_conditions.append(func.upper(ShopifyProduct.oem_numbers).contains(oem.upper()))
+            oem_conditions.append(func.upper(ProductMetafield.value).contains(oem))
         
         if oem_conditions:
-            products = session.query(ShopifyProduct).filter(
-                or_(*oem_conditions)
+            # Find metafields that match OEM numbers
+            metafields = session.query(ProductMetafield).filter(
+                and_(
+                    ProductMetafield.namespace == 'custom',
+                    or_(
+                        ProductMetafield.key == 'original_nummer',
+                        ProductMetafield.key == 'original-nummer'
+                    ),
+                    or_(*oem_conditions)
+                )
             ).limit(50).all()
+            
+            print(f"📦 Found {len(metafields)} metafields matching OEM numbers")
+            
+            # Get unique product IDs from metafields
+            product_ids = list(set([mf.product_id for mf in metafields]))
+            
+            # Fetch products by IDs
+            products = session.query(ShopifyProduct).filter(
+                ShopifyProduct.id.in_(product_ids)
+            ).all()
             
             print(f"📦 Found {len(products)} products in Railway DB")
             
@@ -216,18 +234,23 @@ def search_products_by_oem(oem_numbers):
                 
                 seen_skus.add(product.sku)
                 
+                # Get OEM numbers for this product
+                product_metafields = [mf for mf in metafields if mf.product_id == product.id]
+                oem_values = [mf.value for mf in product_metafields if mf.value]
+                oem_string = ', '.join(oem_values) if oem_values else ''
+                
                 product_dict = {
-                    'id': str(product.shopify_product_id),
+                    'id': str(product.id),
                     'title': product.title or '',
                     'handle': product.handle or '',
-                    'oem': product.oem_numbers or '',
+                    'oem': oem_string,
                     'price': str(product.price or '0'),
                     'sku': product.sku or '',
-                    'variant_id': str(product.shopify_product_id),
+                    'variant_id': str(product.id),
                     'inventory_quantity': product.inventory_quantity or 0
                 }
                 matching_products.append(product_dict)
-                print(f"✅ Found product: {product.title} - SKU: {product.sku} - Price: {product.price} NOK")
+                print(f"✅ Found product: {product.title} - SKU: {product.sku} - Price: {product.price} NOK - OEM: {oem_string[:50]}...")
         
         session.close()
         print(f"✅ Returning {len(matching_products)} unique products (deduplicated by SKU)")
