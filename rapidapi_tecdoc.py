@@ -76,9 +76,13 @@ VEHICLE_GROUP_CACHE_TTL_SECONDS = int(os.getenv('VEHICLE_GROUP_CACHE_TTL_SECONDS
 # Try multiple IDs since TecDoc structure varies by API provider
 # We will search ALL of these and filter by keyword to find shaft articles
 PRODUCT_GROUP_IDS_TO_TRY = [
-    100050, 100060, 100080,  # Common drive shaft IDs
-    100100, 100110, 100120,  # Alternative IDs
-    100260, 100270, 100280,  # More alternatives
+    # Driveline/Transmission related categories
+    100050, 100060, 100070, 100080, 100090,  # 100050-100090 range
+    100100, 100110, 100120, 100130, 100140, 100150,  # 100100-100150 range
+    100200, 100210, 100220, 100230, 100240, 100250,  # 100200-100250 range
+    100260, 100270, 100280, 100290,  # 100260-100290 range
+    # Additional ranges that might contain propshaft
+    100300, 100310, 100320, 100330, 100340, 100350,  # 100300-100350 range
 ]
 PRODUCT_GROUPS = [(gid, f"Category_{gid}") for gid in PRODUCT_GROUP_IDS_TO_TRY]
 # Accept automotive shaft-related articles using flexible keyword matching (case-insensitive)
