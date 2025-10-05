@@ -35,7 +35,6 @@ class ProductMetafield(Base):
     key = Column(String)
     value = Column(Text)
     created_at = Column(DateTime)
-    updated_at = Column(DateTime)
 import logging
 import requests
 import json
