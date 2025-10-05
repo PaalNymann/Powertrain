@@ -1,9 +1,42 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from sqlalchemy import create_engine, text, Column, Integer, String, Text, DateTime, or_, func
+from sqlalchemy import create_engine, text, Column, Integer, String, Text, DateTime, or_, func, and_
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+
+# Define models directly here
+Base = declarative_base()
+
+class ShopifyProduct(Base):
+    __tablename__ = 'shopify_products'
+    
+    id = Column(String, primary_key=True)
+    title = Column(String)
+    handle = Column(String)
+    body_html = Column(Text)
+    vendor = Column(String)
+    product_type = Column(String)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    published_at = Column(DateTime)
+    template_suffix = Column(String)
+    status = Column(String)
+    published_scope = Column(String)
+    tags = Column(String)
+    admin_graphql_api_id = Column(String)
+
+class ProductMetafield(Base):
+    __tablename__ = 'product_metafields'
+    
+    id = Column(String, primary_key=True)
+    product_id = Column(String)
+    namespace = Column(String)
+    key = Column(String)
+    value = Column(Text)
+    type = Column(String)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
 import logging
 import requests
 import json
@@ -83,8 +116,131 @@ def init_db():
         print(f"Error initializing database: {e}")
         raise
 
+def get_shopify_product_data(product_id):
+    """Get real Shopify product data (price, SKU, variant_id) for a specific product"""
+    try:
+        shopify_token = os.getenv('SHOPIFY_TOKEN')
+        shopify_shop = os.getenv('SHOPIFY_DOMAIN')
+        
+        if not shopify_token or not shopify_shop:
+            print("❌ Missing Shopify credentials")
+            return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+        
+        # Fix domain name - remove .myshopify.com if already present
+        if shopify_shop.endswith('.myshopify.com'):
+            base_domain = shopify_shop
+        else:
+            base_domain = f"{shopify_shop}.myshopify.com"
+        
+        url = f"https://{base_domain}/admin/api/2023-10/products/{product_id}.json"
+        headers = {
+            'X-Shopify-Access-Token': shopify_token,
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"🔍 Fetching Shopify data for product {product_id}")
+        response = requests.get(url, headers=headers, verify=False)
+        
+        if response.status_code == 429:
+            print(f"⚠️ Rate limited for product {product_id}, using Railway DB data")
+            return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+        elif response.status_code != 200:
+            print(f"❌ Shopify API error for product {product_id}: {response.status_code} - {response.text[:200]}")
+            return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+        
+        product_data = response.json().get('product', {})
+        variants = product_data.get('variants', [])
+        
+        if variants:
+            first_variant = variants[0]
+            price = str(first_variant.get('price', '0'))
+            sku = first_variant.get('sku', '')
+            variant_id = str(first_variant.get('id', ''))
+            inventory = first_variant.get('inventory_quantity', 0)
+            
+            print(f"✅ Got Shopify data for {product_id}: Price={price}, SKU={sku}")
+            
+            return {
+                'price': price,
+                'sku': sku,
+                'variant_id': variant_id,
+                'inventory_quantity': inventory
+            }
+        else:
+            print(f"⚠️ No variants found for product {product_id}")
+        
+        return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+        
+    except Exception as e:
+        print(f"❌ Error getting Shopify product data for {product_id}: {e}")
+        return {'price': '0', 'sku': '', 'variant_id': '', 'inventory_quantity': 0}
+
 def search_products_by_oem(oem_numbers):
-    """Search for products by OEM numbers in Shopify API using SINGLE bulk call and title matching"""
+    """Search for products by OEM numbers in Railway DB - returns unique products with price and SKU"""
+    try:
+        session = SessionLocal()
+        
+        print(f"🔍 Searching Railway DB for {len(oem_numbers)} OEM numbers")
+        
+        matching_products = []
+        seen_skus = set()  # Track SKUs to avoid duplicates
+        
+        # Normalize OEM numbers for search
+        normalized_oems = []
+        for oem in oem_numbers:
+            # Add both original and normalized versions
+            normalized_oems.append(oem)
+            clean = oem.replace('-', '').replace(' ', '').strip().upper()
+            if clean != oem:
+                normalized_oems.append(clean)
+        
+        # Search in Railway DB products table
+        from sqlalchemy import or_, func
+        
+        # Build OR conditions for all OEM variations
+        oem_conditions = []
+        for oem in normalized_oems[:20]:  # Limit to avoid too complex query
+            oem_conditions.append(func.upper(ShopifyProduct.oem_numbers).contains(oem.upper()))
+        
+        if oem_conditions:
+            products = session.query(ShopifyProduct).filter(
+                or_(*oem_conditions)
+            ).limit(50).all()
+            
+            print(f"📦 Found {len(products)} products in Railway DB")
+            
+            for product in products:
+                # Skip if we've already seen this SKU (deduplicate)
+                if product.sku in seen_skus:
+                    continue
+                
+                seen_skus.add(product.sku)
+                
+                product_dict = {
+                    'id': str(product.shopify_product_id),
+                    'title': product.title or '',
+                    'handle': product.handle or '',
+                    'oem': product.oem_numbers or '',
+                    'price': str(product.price or '0'),
+                    'sku': product.sku or '',
+                    'variant_id': str(product.shopify_product_id),
+                    'inventory_quantity': product.inventory_quantity or 0
+                }
+                matching_products.append(product_dict)
+                print(f"✅ Found product: {product.title} - SKU: {product.sku} - Price: {product.price} NOK")
+        
+        session.close()
+        print(f"✅ Returning {len(matching_products)} unique products (deduplicated by SKU)")
+        return matching_products
+        
+    except Exception as e:
+        print(f"❌ Error searching Railway DB: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def search_products_by_vehicle(make, model=None):
+    """Search for products by vehicle make/model DIRECTLY in Shopify API"""
     try:
         shopify_token = os.getenv('SHOPIFY_TOKEN')
         shopify_shop = os.getenv('SHOPIFY_DOMAIN')
@@ -99,7 +255,13 @@ def search_products_by_oem(oem_numbers):
         else:
             base_domain = f"{shopify_shop}.myshopify.com"
         
-        print(f"🔍 Making SINGLE Shopify API call for {len(oem_numbers)} OEM numbers")
+        # Build search query for Shopify
+        if model:
+            search_term = f"{make} {model}"
+            print(f"🔍 Vehicle search for {make} {model}: searching DIRECTLY in Shopify")
+        else:
+            search_term = make
+            print(f"🔍 Vehicle search for {make}: searching DIRECTLY in Shopify")
         
         url = f"https://{base_domain}/admin/api/2023-10/products.json"
         headers = {
@@ -107,14 +269,14 @@ def search_products_by_oem(oem_numbers):
             'Content-Type': 'application/json'
         }
         
-        # Get ALL active products with variants in SINGLE API call
         params = {
-            'limit': 250,  # Get more products to search through
+            'limit': 20,
             'status': 'active',
-            'fields': 'id,title,handle,variants,body_html'  # Include body_html for OEM matching
+            'title': search_term,  # Search by title containing vehicle info
+            'fields': 'id,title,handle,variants'  # Include variants for pricing
         }
         
-        response = requests.get(url, headers=headers, params=params, verify=False)
+        response = requests.get(url, headers=headers, verify=False)
         
         if response.status_code != 200:
             print(f"❌ Shopify API error: {response.status_code}")
@@ -123,104 +285,33 @@ def search_products_by_oem(oem_numbers):
         shopify_data = response.json()
         products = shopify_data.get('products', [])
         
-        print(f"🔍 Got {len(products)} products from Shopify, searching for OEM matches")
+        print(f"🔍 Vehicle search for {search_term}: found {len(products)} REAL Shopify matches")
         
-        matching_products = []
-        
-        # Search through all products for ANY OEM number match
+        # Convert to the expected format with REAL Shopify data
+        results = []
         for product in products:
-            title = product.get('title', '').upper()
-            body_html = product.get('body_html', '').upper() if product.get('body_html') else ''
-            
-            # Check if ANY OEM number is in title or description
-            for oem_number in oem_numbers:
-                clean_oem = oem_number.replace('-', '').replace(' ', '').strip().upper()
-                oem_upper = oem_number.upper()
+            variants = product.get('variants', [])
+            if variants:
+                first_variant = variants[0]
                 
-                if (oem_upper in title or clean_oem in title or 
-                    oem_upper in body_html or clean_oem in body_html):
-                    
-                    # Get first variant for pricing info
-                    variants = product.get('variants', [])
-                    if variants:
-                        first_variant = variants[0]
-                        
-                        product_dict = {
-                            'id': str(product.get('id', '')),
-                            'title': product.get('title', ''),
-                            'handle': product.get('handle', ''),
-                            'oem': oem_number,  # Use the matched OEM number
-                            'price': str(first_variant.get('price', '0')),  # REAL Shopify price
-                            'sku': first_variant.get('sku', ''),  # REAL Shopify SKU
-                            'variant_id': str(first_variant.get('id', '')),  # REAL variant ID
-                            'inventory_quantity': first_variant.get('inventory_quantity', 0)
-                        }
-                        matching_products.append(product_dict)
-                        print(f"✅ Found match: {product.get('title')} - OEM: {oem_number} - Price: {first_variant.get('price')} NOK")
-                        break  # Found match for this product, move to next product
-        
-        print(f"✅ Found {len(matching_products)} matching Shopify products with REAL data")
-        return matching_products
-        
-    except Exception as e:
-        print(f"❌ Error searching Shopify products: {e}")
-        return []
-
-def search_products_by_vehicle(make, model=None):
-    """Search for products by vehicle make and model as fallback when OEM search fails"""
-    session = SessionLocal()
-    try:
-        # Build search conditions for vehicle make/model
-        conditions = []
-        
-        # Search for make (required)
-        if make:
-            make_condition = func.upper(ShopifyProduct.title).like(f'%{make.upper()}%')
-            conditions.append(make_condition)
-        
-        # Add model condition if provided
-        if model and model.strip():
-            model_condition = func.upper(ShopifyProduct.title).like(f'%{model.upper()}%')
-            conditions.append(model_condition)
-        
-        # Also search for drivaksel/aksel products specifically
-        product_type_condition = or_(
-            func.upper(ShopifyProduct.title).like('%DRIVAKSEL%'),
-            func.upper(ShopifyProduct.title).like('%AKSEL%')
-        )
-        conditions.append(product_type_condition)
-        
-        # Combine all conditions
-        if conditions:
-            query = session.query(ShopifyProduct).filter(*conditions)
-            products = query.limit(20).all()  # Limit to prevent too many results
-            
-            print(f"🔍 Vehicle search for {make} {model or ''}: found {len(products)} matches")
-            
-            # Convert to dictionary format
-            result = []
-            for product in products:
                 product_dict = {
-                    'id': str(product.id),
-                    'title': product.title,
-                    'handle': product.handle,
-                    'oem': f"{make} {model or ''}".strip(),  # Use vehicle info as "OEM"
-                    'price': '0',  # Default since Railway DB has no price column
-                    'sku': '',  # Default since Railway DB has no SKU column
-                    'variant_id': '',  # Default since Railway DB has no variant_id column
-                    'inventory_quantity': 1  # Assume available since Railway DB has no inventory column
+                    'id': str(product.get('id', '')),
+                    'title': product.get('title', ''),
+                    'handle': product.get('handle', ''),
+                    'oem': search_term,  # Use the search term as OEM
+                    'price': str(first_variant.get('price', '0')),  # REAL Shopify price
+                    'sku': first_variant.get('sku', ''),  # REAL Shopify SKU
+                    'variant_id': str(first_variant.get('id', '')),  # REAL variant ID
+                    'inventory_quantity': first_variant.get('inventory_quantity', 0)
                 }
-                result.append(product_dict)
-            
-            return result
-        else:
-            return []
+                results.append(product_dict)
+                print(f"✅ Found REAL Shopify product: {product.get('title')} - Price: {first_variant.get('price')} NOK")
+        
+        return results
         
     except Exception as e:
-        print(f"Error searching by vehicle: {e}")
+        print(f"❌ Error in vehicle search: {e}")
         return []
-    finally:
-        session.close()
 
 def update_shopify_cache(products_data):
     """Update Shopify product cache in database"""
