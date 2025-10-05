@@ -296,14 +296,22 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
         # Fetch articles with POST, fallback to GET if needed
         raw_articles = _fetch_articles(vehicle_id, group_id, PER_PAGE)
         if isinstance(raw_articles, list):
-            # Do NOT filter by keywords; trust the selected product group IDs
+            # FILTER by keywords to ensure we only get shaft-related articles
+            # since product group IDs may not be accurate
             sample_names = [
                 (x.get('genericArticleName') or x.get('articleProductName') or '')
                 for x in raw_articles[:10]
             ]
             print(f"   -> Article names (sample): {sample_names}")
-            print(f"   -> Using all {len(raw_articles)} articles from TecDoc for this group")
-            articles = list(raw_articles)
+            
+            # Filter articles by shaft-related keywords
+            articles = []
+            for art in raw_articles:
+                name = (art.get('genericArticleName') or art.get('articleProductName') or '').strip()
+                if _name_allowed(name):
+                    articles.append(art)
+            
+            print(f"   -> Filtered to {len(articles)} shaft-related articles from {len(raw_articles)} total")
             
             print(f"   📦 Found {len(articles)} articles for category {group_id}.")
             # Cap processing to first N to avoid excessive network time
