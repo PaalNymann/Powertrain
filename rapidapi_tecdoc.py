@@ -72,15 +72,18 @@ PER_PAGE = MAX_ARTICLES_PER_GROUP
 OEM_EARLY_EXIT_LIMIT = int(os.getenv('OEM_EARLY_EXIT_LIMIT', '50'))
 VIN_DB_CACHE_TTL_SECONDS = int(os.getenv('VIN_DB_CACHE_TTL_SECONDS', '86400'))  # 24h persistent cache
 VEHICLE_GROUP_CACHE_TTL_SECONDS = int(os.getenv('VEHICLE_GROUP_CACHE_TTL_SECONDS', '604800'))  # 7 days
-# Per user's confirmation: use these two product groups (env-overridable)
+# TecDoc product group IDs for Drive Shaft and Propshaft (correct IDs)
+# These are the standard TecDoc IDs used globally
 try:
-    PG_DRIV = int(os.getenv('PRODUCT_GROUP_ID_DRIVAKSLER', '100260'))
+    # Drive Shaft = 100100 (standard TecDoc ID)
+    PG_DRIV = int(os.getenv('PRODUCT_GROUP_ID_DRIVAKSLER', '100100'))
 except Exception:
-    PG_DRIV = 100260
+    PG_DRIV = 100100
 try:
-    PG_MELL = int(os.getenv('PRODUCT_GROUP_ID_MELLOMAKSLER', '100270'))
+    # Propshaft/Intermediate Shaft = 100110 (standard TecDoc ID)
+    PG_MELL = int(os.getenv('PRODUCT_GROUP_ID_MELLOMAKSLER', '100110'))
 except Exception:
-    PG_MELL = 100270
+    PG_MELL = 100110
 PRODUCT_GROUPS = [(PG_DRIV, "Drivaksler"), (PG_MELL, "Mellomaksler")]
 # Accept automotive shaft-related articles using flexible keyword matching (case-insensitive)
 # This covers both drivaksler and mellomaksler common TecDoc names.

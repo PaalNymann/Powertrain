@@ -34,7 +34,6 @@ class ProductMetafield(Base):
     namespace = Column(String)
     key = Column(String)
     value = Column(Text)
-    type = Column(String)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
 import logging
