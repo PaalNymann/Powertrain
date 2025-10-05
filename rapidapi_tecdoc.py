@@ -278,9 +278,17 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
 
     all_oems = set()
     
-    # 1) Loop product groups and fetch articles
-    for group_id, group_name in PRODUCT_GROUPS:
-        print(f"\n🔍 Searching for '{group_name}' (ID: {group_id}) for vehicleId: {vehicle_id}")
+    # 1) Discover shaft-related categories dynamically instead of using hardcoded IDs
+    print(f"\n🔍 Discovering shaft-related categories for vehicleId: {vehicle_id}")
+    shaft_category_ids = _discover_shaft_category_ids(vehicle_id)
+    
+    if not shaft_category_ids:
+        print("⚠️ No shaft-related categories found, falling back to hardcoded product groups")
+        shaft_category_ids = [PG_DRIV, PG_MELL]
+    
+    # 2) Loop discovered categories and fetch articles
+    for group_id in shaft_category_ids:
+        print(f"\n🔍 Searching category ID: {group_id} for vehicleId: {vehicle_id}")
         
         # Fetch articles with POST, fallback to GET if needed
         raw_articles = _fetch_articles(vehicle_id, group_id, PER_PAGE)
@@ -294,7 +302,7 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
             print(f"   -> Using all {len(raw_articles)} articles from TecDoc for this group")
             articles = list(raw_articles)
             
-            print(f"   📦 Found {len(articles)} articles for '{group_name}'.")
+            print(f"   📦 Found {len(articles)} articles for category {group_id}.")
             # Cap processing to first N to avoid excessive network time
             for article in articles[:MAX_ARTICLES_PER_GROUP]:
                 # 1) Try OEMs directly from list-articles if present
