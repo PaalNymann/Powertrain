@@ -72,19 +72,15 @@ PER_PAGE = MAX_ARTICLES_PER_GROUP
 OEM_EARLY_EXIT_LIMIT = int(os.getenv('OEM_EARLY_EXIT_LIMIT', '50'))
 VIN_DB_CACHE_TTL_SECONDS = int(os.getenv('VIN_DB_CACHE_TTL_SECONDS', '86400'))  # 24h persistent cache
 VEHICLE_GROUP_CACHE_TTL_SECONDS = int(os.getenv('VEHICLE_GROUP_CACHE_TTL_SECONDS', '604800'))  # 7 days
-# TecDoc product group IDs for Drive Shaft and Propshaft (correct IDs)
-# These are the standard TecDoc IDs used globally
-try:
-    # Drive Shaft = 100100 (standard TecDoc ID)
-    PG_DRIV = int(os.getenv('PRODUCT_GROUP_ID_DRIVAKSLER', '100100'))
-except Exception:
-    PG_DRIV = 100100
-try:
-    # Propshaft/Intermediate Shaft = 100110 (standard TecDoc ID)
-    PG_MELL = int(os.getenv('PRODUCT_GROUP_ID_MELLOMAKSLER', '100110'))
-except Exception:
-    PG_MELL = 100110
-PRODUCT_GROUPS = [(PG_DRIV, "Drivaksler"), (PG_MELL, "Mellomaksler")]
+# TecDoc product group IDs for Drive Shaft and Propshaft
+# Try multiple IDs since TecDoc structure varies by API provider
+# We will search ALL of these and filter by keyword to find shaft articles
+PRODUCT_GROUP_IDS_TO_TRY = [
+    100050, 100060, 100080,  # Common drive shaft IDs
+    100100, 100110, 100120,  # Alternative IDs
+    100260, 100270, 100280,  # More alternatives
+]
+PRODUCT_GROUPS = [(gid, f"Category_{gid}") for gid in PRODUCT_GROUP_IDS_TO_TRY]
 # Accept automotive shaft-related articles using flexible keyword matching (case-insensitive)
 # This covers both drivaksler and mellomaksler common TecDoc names.
 ALLOWED_ARTICLE_KEYWORDS = tuple(
@@ -94,6 +90,7 @@ ALLOWED_ARTICLE_KEYWORDS = tuple(
         "propeller shaft",   # alternative naming
         "cardan",            # cardan shaft
         "intermediate shaft",# mellomaksel
+        "axle drive",        # tecdoc term for propshaft/drive shaft
         "shaft"              # safe fallback within our targeted product groups
     ]
 )
@@ -286,8 +283,8 @@ def get_oem_numbers_from_rapidapi_tecdoc(vin: str) -> List[str]:
     shaft_category_ids = _discover_shaft_category_ids(vehicle_id)
     
     if not shaft_category_ids:
-        print("⚠️ No shaft-related categories found, falling back to hardcoded product groups")
-        shaft_category_ids = [PG_DRIV, PG_MELL]
+        print("⚠️ No shaft-related categories found, falling back to trying multiple category IDs")
+        shaft_category_ids = PRODUCT_GROUP_IDS_TO_TRY
     
     # 2) Loop discovered categories and fetch articles
     for group_id in shaft_category_ids:
