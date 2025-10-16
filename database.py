@@ -196,8 +196,10 @@ def search_products_by_oem(oem_numbers):
         from sqlalchemy import or_, func
         
         # Build OR conditions for all OEM variations in metafields
+        # Increased limit from 20 to 200 to catch more OEM matches
+        # bilregistret.ai can return 100+ OEM numbers per vehicle
         oem_conditions = []
-        for oem in normalized_oems[:20]:  # Limit to avoid too complex query
+        for oem in normalized_oems[:200]:  # Increased limit for better coverage
             oem_conditions.append(func.upper(ProductMetafield.value).contains(oem))
         
         if oem_conditions:
