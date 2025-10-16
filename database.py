@@ -204,6 +204,7 @@ def search_products_by_oem(oem_numbers):
         
         if oem_conditions:
             # Find metafields that match OEM numbers
+            # Increased limit to match OEM search limit (200 OEMs can match many metafields)
             metafields = session.query(ProductMetafield).filter(
                 and_(
                     ProductMetafield.namespace == 'custom',
@@ -213,7 +214,7 @@ def search_products_by_oem(oem_numbers):
                     ),
                     or_(*oem_conditions)
                 )
-            ).limit(50).all()
+            ).limit(300).all()
             
             print(f"📦 Found {len(metafields)} metafields matching OEM numbers")
             
