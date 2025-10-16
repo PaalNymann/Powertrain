@@ -866,6 +866,16 @@ def sync_full():
                 in_shop = custom_fields.get("inettbutikk") == "ja" if custom_fields else False
                 if not in_shop:
                     continue  # Skip products without i_nettbutikk=ja
+
+                # ✅ Criteria 3: Price between 1 and 80,000 NOK
+                price = p.get("sales_price", 0)
+                if not (1 <= price <= 80000):
+                    continue  # Skip products outside price bounds
+
+                # ✅ Criteria 4: Must have OEM numbers in Original_nummer (from custom_fields)
+                oem_raw = custom_fields.get("originalnummer") or custom_fields.get("original_nummer")
+                if not oem_raw or str(oem_raw).strip() == "":
+                    continue  # Skip products without OEM numbers
                 
                 processed += 1
                 print(f"📦 Processing {processed}: {p.get('number', 'N_A')} (i_nettbutikk=ja)")

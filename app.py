@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from database import init_db, search_products_by_oem, search_products_by_vehicle, update_shopify_cache
 from svv_client import hent_kjoretoydata
 from rapidapi_tecdoc import get_oem_numbers_from_rapidapi_tecdoc
+from bilregistret_client import get_oem_numbers_from_bilregistret
 
 load_dotenv()
 
@@ -340,17 +341,16 @@ def car_parts_search():
         
         print(f"✅ Vehicle info extracted: {vehicle_info}")
         
-        # Step 2: Get OEM numbers from TecDoc API using working rapidapi_tecdoc module
-        print(f"🔍 Step 2: Getting OEM numbers from TecDoc API for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
+        # Step 2: Get OEM numbers from bilregistret.ai API using registration number
+        print(f"🔍 Step 2: Getting OEM numbers from bilregistret.ai for {regnr}")
         
-        # Use VIN from SVV data for direct OEM lookup (more accurate than make/model/year)
-        vin = vehicle_data.get('kjoretoydataListe', [{}])[0].get('kjoretoyId', {}).get('understellsnummer', '')
-        if vin:
-            print(f"🔍 Using VIN {vin} for direct TecDoc OEM lookup")
-            oem_numbers = get_oem_numbers_from_rapidapi_tecdoc(vin)
-        else:
-            print(f"⚠️ No VIN found, using fallback method")
-            oem_numbers = []
+        # Use bilregistret.ai to get OEM numbers directly from registration number
+        # This is faster and more accurate than VIN-based lookup
+        oem_numbers = get_oem_numbers_from_bilregistret(regnr)
+        
+        if not oem_numbers:
+            print(f"⚠️ bilregistret.ai returned no OEM numbers for {regnr}")
+            print(f"   This is common for electric/hybrid vehicles or newer models (2019+)")
         
         if not oem_numbers:
             print(f"📦 No OEM numbers found for {vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']}")
@@ -358,7 +358,7 @@ def car_parts_search():
                 'vehicle_info': vehicle_info,
                 'oem_numbers': [],
                 'products': [],
-                'message': f'No parts found for {vehicle_info["make"]} {vehicle_info["model"]} {vehicle_info["year"]}'
+                'message': f'Ingen deler funnet for {vehicle_info["make"]} {vehicle_info["model"]} {vehicle_info["year"]}. Dette kan skyldes at kjøretøyet er elektrisk, hybrid eller nyere modell (2019+).'
             })
         
         print(f"📦 Found {len(oem_numbers)} OEM numbers: {oem_numbers}")
@@ -369,9 +369,20 @@ def car_parts_search():
         # Use new function signature that takes list of OEM numbers
         all_products = search_products_by_oem(oem_numbers)
         
-        # No fallback search - only show products that match OEM numbers
-        # This ensures we only show parts that actually fit the vehicle
-        unique_products = all_products  # Already deduplicated by SKU in search_products_by_oem
+        # Step 3b: Filter products by vehicle make to avoid wrong brand matches
+        # OEM numbers are not unique across brands, so we must filter by make
+        vehicle_make = vehicle_info.get('make', '').upper()
+        unique_products = []
+        for product in all_products:
+            product_title = product.get('title', '').upper()
+            # Check if product title contains the vehicle make
+            if vehicle_make and vehicle_make in product_title:
+                unique_products.append(product)
+                print(f"✅ Matched product: {product.get('sku')} - {product.get('title')[:50]}")
+            else:
+                print(f"❌ Filtered out (wrong brand): {product.get('sku')} - {product.get('title')[:50]}")
+        
+        print(f"📦 Filtered from {len(all_products)} to {len(unique_products)} products matching {vehicle_make}")
         
         print(f"✅ Found {len(unique_products)} matching Shopify products")
         
@@ -537,9 +548,9 @@ def update_cache():
 def cache_stats():
     """Get cache statistics"""
     try:
-        from database import SessionLocal
+        from database import SessionLocal, ShopifyProduct
         session = SessionLocal()
-        count = session.query(database.ShopifyProduct).count()
+        count = session.query(ShopifyProduct).count()
         session.close()
         
         return jsonify({
