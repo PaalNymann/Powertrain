@@ -55,8 +55,13 @@ def extract_vehicle_info(vehicle_data):
         tekniske_data = teknisk_godkjenning.get('tekniskeData', {})
         generelt = tekniske_data.get('generelt', {})
         motor_og_drivverk = tekniske_data.get('motorOgDrivverk', {}) or tekniske_data.get('motorogdrivverk', {})
-        motor = motor_og_drivverk.get('motor', {}) if isinstance(motor_og_drivverk, dict) else {}
+        
+        # Motor can be either a dict or a list (array) - handle both cases
+        motor_raw = motor_og_drivverk.get('motor', {}) if isinstance(motor_og_drivverk, dict) else {}
+        motor = motor_raw[0] if isinstance(motor_raw, list) and motor_raw else (motor_raw if isinstance(motor_raw, dict) else {})
+        
         drivverk = motor_og_drivverk.get('drivverk', {}) if isinstance(motor_og_drivverk, dict) else {}
+        akslinger = tekniske_data.get('akslinger', {})
 
         # Extract make from merke array
         merke_liste = generelt.get('merke', [])
@@ -110,11 +115,37 @@ def extract_vehicle_info(vehicle_data):
         engine_code = pick_first(motor, [
             ['motorkode'], ['motorKode'], ['motorbetegnelse']
         ])
-        fuel = pick_first(motor, [['drivstoff'], ['drivstofftype']])
+        
+        # Fuel: can be nested in drivstoff array with drivstoffKode.kodeBeskrivelse
+        fuel_raw = pick_first(motor, [['drivstoff'], ['drivstofftype']])
+        if isinstance(fuel_raw, list) and fuel_raw:
+            # Handle new structure: motor.drivstoff[0].drivstoffKode.kodeBeskrivelse
+            fuel = fuel_raw[0].get('drivstoffKode', {}).get('kodeBeskrivelse', '') if isinstance(fuel_raw[0], dict) else str(fuel_raw[0])
+        else:
+            fuel = fuel_raw if fuel_raw else ''
+        
         displacement = pick_first(motor, [['slagvolum'], ['motorvolum']])
+        
+        # Power: can be in drivstoff array as maksNettoEffekt
         power_kw = pick_first(motor, [['maksEffekt'], ['maksEffektKW'], ['effektKW']])
+        if not power_kw and isinstance(fuel_raw, list) and fuel_raw:
+            # Try to get from drivstoff[0].maksNettoEffekt
+            power_kw = fuel_raw[0].get('maksNettoEffekt') if isinstance(fuel_raw[0], dict) else None
+        
         power_hp = pick_first(motor, [['maksEffektHK'], ['effektHK']])
         power = f"{power_kw} kW" if power_kw else (f"{power_hp} hk" if power_hp else '')
+        
+        # Axles info
+        antall_aksler = akslinger.get('antallAksler', '')
+        
+        # Count axles with drive (drivAksel = true)
+        aksler_med_drift = 0
+        aksel_grupper = akslinger.get('akselGruppe', [])
+        for gruppe in aksel_grupper:
+            aksel_liste = gruppe.get('akselListe', {}).get('aksel', [])
+            for aksel in aksel_liste:
+                if aksel.get('drivAksel', False):
+                    aksler_med_drift += 1
 
         return {
             'make': make,
@@ -126,7 +157,9 @@ def extract_vehicle_info(vehicle_data):
             'engine': engine_code or '',
             'fuel': fuel or '',
             'displacement': displacement or '',
-            'power': power or ''
+            'power': power or '',
+            'antall_aksler': antall_aksler or '',
+            'aksler_med_drift': aksler_med_drift or ''
         }
     except Exception as e:
         print(f"❌ Error extracting vehicle info: {e}")
