@@ -158,8 +158,8 @@ def extract_vehicle_info(vehicle_data):
             'fuel': fuel or '',
             'displacement': displacement or '',
             'power': power or '',
-            'antall_aksler': antall_aksler or '',
-            'aksler_med_drift': aksler_med_drift or ''
+            'antallAksler': antall_aksler or '',  # camelCase to match frontend
+            'antallAkslerMedDrift': aksler_med_drift or ''  # camelCase to match frontend
         }
     except Exception as e:
         print(f"❌ Error extracting vehicle info: {e}")
