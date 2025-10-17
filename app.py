@@ -67,9 +67,25 @@ def extract_vehicle_info(vehicle_data):
         merke_liste = generelt.get('merke', [])
         make = merke_liste[0].get('merke', '').upper() if merke_liste else ''
         
-        # Extract model from handelsbetegnelse array
+        # Extract model from handelsbetegnelse array and clean it up
         handelsbetegnelse_liste = generelt.get('handelsbetegnelse', [])
-        model = handelsbetegnelse_liste[0].upper() if handelsbetegnelse_liste else ''
+        model_raw = handelsbetegnelse_liste[0] if handelsbetegnelse_liste else ''
+        
+        # Clean up model name: remove extra whitespace, remove duplicate make name
+        if model_raw:
+            # Normalize whitespace (replace multiple spaces with single space)
+            model = ' '.join(model_raw.split()).upper()
+            # Remove make name from model if it appears at the start
+            if make and model.startswith(make + ' '):
+                model = model[len(make):].strip()
+            # Remove common suffixes that are not part of actual model name
+            # These are often internal codes or environment codes from SVV
+            suffixes_to_remove = ['NISSANNENV', 'NENV', 'ENV']
+            for suffix in suffixes_to_remove:
+                if model.endswith(suffix):
+                    model = model[:-len(suffix)].strip()
+        else:
+            model = ''
         
         # Extract year from forstegangsregistrering
         forstegangsregistrering = kjoretoydata.get('forstegangsregistrering', {})
